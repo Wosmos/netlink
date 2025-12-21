@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"runtime"
 	"time"
 
 	"go-to-do/auth"
@@ -14,9 +16,14 @@ import (
 	"go-to-do/repository"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/net/netutil"
 )
 
 func main() {
+	// Use all CPU cores
+	runtime.GOMAXPROCS(runtime.NumCPU())
+	fmt.Printf("🔧 Using %d CPU cores\n", runtime.NumCPU())
+
 	// Load .env file
 	config.LoadEnv()
 
@@ -32,11 +39,12 @@ func main() {
 		log.Fatal("Failed to parse config:", err)
 	}
 
-	// Pool settings for high concurrency
-	poolConfig.MaxConns = 100
-	poolConfig.MinConns = 10
-	poolConfig.MaxConnLifetime = time.Hour
-	poolConfig.MaxConnIdleTime = 30 * time.Minute
+	// Pool settings - optimized for stability
+	poolConfig.MaxConns = 500 // Reduced for stability
+	poolConfig.MinConns = 50
+	poolConfig.MaxConnLifetime = 30 * time.Minute
+	poolConfig.MaxConnIdleTime = 5 * time.Minute
+	poolConfig.HealthCheckPeriod = time.Minute
 
 	// Create connection pool
 	pool, err := pgxpool.NewWithConfig(context.Background(), poolConfig)
@@ -87,12 +95,23 @@ func main() {
 	http.HandleFunc("/delete", taskHandler.Delete)
 
 	server := &http.Server{
-		Addr:         ":8080",
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:           ":8080",
+		ReadTimeout:    30 * time.Second,
+		WriteTimeout:   30 * time.Second,
+		IdleTimeout:    120 * time.Second,
+		MaxHeaderBytes: 1 << 20, // 1MB
 	}
 
+	// Create listener with connection limit to prevent crashes
+	listener, err := net.Listen("tcp", ":8080")
+	if err != nil {
+		log.Fatal("Failed to create listener:", err)
+	}
+
+	// Limit concurrent connections to prevent resource exhaustion
+	limitedListener := netutil.LimitListener(listener, 10000)
+
 	fmt.Println("🚀 Server starting on http://localhost:8080")
-	log.Fatal(server.ListenAndServe())
+	fmt.Println("📊 Max concurrent connections: 10,000")
+	log.Fatal(server.Serve(limitedListener))
 }

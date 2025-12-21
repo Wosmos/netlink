@@ -16,9 +16,9 @@ import (
 
 const (
 	baseURL      = "http://localhost:8080"
-	totalUsers   = 500              // Neon free tier: ~100 connections, so 500 concurrent users is realistic
+	totalUsers   = 7000 // Start stable, then scale up
 	testDuration = 60 * time.Second
-	rampUpTime   = 15 * time.Second
+	rampUpTime   = 30 * time.Second
 	defaultPass  = "Test@123"
 )
 
@@ -43,18 +43,18 @@ type Metrics struct {
 	LogoutSuccess  int64
 	LogoutFail     int64
 
-	LoginLatency         int64
-	HomeLatency          int64
-	AddTaskLatency       int64
-	ToggleLatency        int64
-	DeleteLatency        int64
-	LogoutLatency        int64
-	LoginLatencyCount    int64
-	HomeLatencyCount     int64
-	AddTaskLatencyCount  int64
-	ToggleLatencyCount   int64
-	DeleteLatencyCount   int64
-	LogoutLatencyCount   int64
+	LoginLatency        int64
+	HomeLatency         int64
+	AddTaskLatency      int64
+	ToggleLatency       int64
+	DeleteLatency       int64
+	LogoutLatency       int64
+	LoginLatencyCount   int64
+	HomeLatencyCount    int64
+	AddTaskLatencyCount int64
+	ToggleLatencyCount  int64
+	DeleteLatencyCount  int64
+	LogoutLatencyCount  int64
 
 	LoginPeak   int64
 	HomePeak    int64
@@ -496,21 +496,18 @@ func printResults(totalTime time.Duration) {
 	fmt.Printf("\n💡 DIAGNOSIS\n")
 	if metrics.Errors.ConnRefused > 0 {
 		fmt.Println("   • Connection refused = Server crashed or not running")
-		fmt.Println("     Check server logs for errors")
 	}
 	if metrics.Errors.Timeout > int64(total)/10 {
-		fmt.Println("   • High timeouts = DB connection pool exhausted or slow queries")
-		fmt.Println("     Neon free tier: ~100 connections max")
+		fmt.Println("   • High timeouts = DB pool exhausted, increase max_connections")
 	}
 	if metrics.Errors.BadStatus > int64(total)/10 {
-		fmt.Println("   • Bad status codes = Users don't exist in DB")
-		fmt.Println("     Run: go run ./cmd/seed/main.go")
+		fmt.Println("   • Bad status = Users don't exist, run seed first")
 	}
 	if avgLatency(metrics.LoginLatency, metrics.LoginLatencyCount) > 500 {
-		fmt.Println("   • Slow login = bcrypt CPU-bound + network latency to Neon")
+		fmt.Println("   • Slow login = bcrypt is CPU-intensive by design")
 	}
 	if errorRate < 5 {
-		fmt.Println("   • App is performing well for Neon free tier!")
+		fmt.Println("   ✅ App is handling load well!")
 	}
 
 	fmt.Println(strings.Repeat("=", 65))
