@@ -5,9 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"time"
-
 	"go-to-do/models"
-
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
