@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"runtime"
@@ -16,7 +15,6 @@ import (
 	"go-to-do/repository"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"golang.org/x/net/netutil"
 )
 
 func main() {
@@ -102,16 +100,6 @@ func main() {
 		MaxHeaderBytes: 1 << 20, // 1MB
 	}
 
-	// Create listener with connection limit to prevent crashes
-	listener, err := net.Listen("tcp", ":8080")
-	if err != nil {
-		log.Fatal("Failed to create listener:", err)
-	}
-
-	// Limit concurrent connections to prevent resource exhaustion
-	limitedListener := netutil.LimitListener(listener, 10000)
-
 	fmt.Println("🚀 Server starting on http://localhost:8080")
-	fmt.Println("📊 Max concurrent connections: 10,000")
-	log.Fatal(server.Serve(limitedListener))
+	log.Fatal(server.ListenAndServe())
 }

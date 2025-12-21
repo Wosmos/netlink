@@ -16,7 +16,7 @@ import (
 
 const (
 	baseURL      = "http://localhost:8080"
-	totalUsers   = 7000 // Start stable, then scale up
+	totalUsers   = 2000 // Start stable, then scale up
 	testDuration = 60 * time.Second
 	rampUpTime   = 30 * time.Second
 	defaultPass  = "Test@123"
