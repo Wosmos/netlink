@@ -17,13 +17,11 @@ import (
 
 const (
 	SessionCookieName = "session_id"
-	SessionDuration   = 24 * time.Hour * 7 // 7 days
-	BcryptCost        = 8                  // Match seed file cost (12 is too slow for 10K concurrent)
+	SessionDuration   = 24 * time.Hour * 7
+	BcryptCost        = 8
 )
 
-var emailRegex = regexp.MustCompile(
-	`^[a-zA-Z0-9.!#$%&'*+/=?^_` + "`" + `{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$`,
-)
+var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9.!#$%&'*+/=?^_{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$`)
 
 type AuthService struct {
 	userRepo    *repository.UserRepository
@@ -46,8 +44,7 @@ func (s *AuthService) HashPassword(password string) (string, error) {
 }
 
 func (s *AuthService) CheckPassword(password, hash string) bool {
-	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
-	return err == nil
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }
 
 func (s *AuthService) ValidateEmail(email string) bool {
@@ -66,8 +63,7 @@ func (s *AuthService) Register(email, password string) error {
 	token := s.GenerateToken()
 	_, err = s.userRepo.Create(email, hash, token)
 	if err == nil {
-		// Mock sending email
-		fmt.Printf("📧 [MOCK EMAIL] To: %s, Body: Your verification link is http://localhost:8080/verify?token=%s\n", email, token)
+		fmt.Printf("[MOCK EMAIL] To: %s, Verify: http://localhost:8080/verify?token=%s\n", email, token)
 	}
 	return err
 }
@@ -85,25 +81,19 @@ func (s *AuthService) VerifyEmail(token string) error {
 
 func (s *AuthService) ForgotPassword(email string) error {
 	user, err := s.userRepo.GetByEmail(email)
-	if err != nil {
-		return err
-	}
-	if user == nil {
-		// Don't reveal if email exists, but we can't send if it doesn't
+	if err != nil || user == nil {
 		return nil
 	}
-
 	token := s.GenerateToken()
 	expires := time.Now().Add(1 * time.Hour)
 	err = s.userRepo.SetResetToken(user.ID, &token, &expires)
 	if err == nil {
-		// Mock sending email
-		fmt.Printf("📧 [MOCK EMAIL] To: %s, Body: Your password reset link is http://localhost:8080/reset-password?token=%s\n", email, token)
+		fmt.Printf("[MOCK EMAIL] To: %s, Reset: http://localhost:8080/reset-password?token=%s\n", email, token)
 	}
 	return err
 }
 
-func (s *AuthService) ResetPassword(token string, newPassword string) error {
+func (s *AuthService) ResetPassword(token, newPassword string) error {
 	user, err := s.userRepo.GetByResetToken(token)
 	if err != nil {
 		return err
@@ -111,12 +101,10 @@ func (s *AuthService) ResetPassword(token string, newPassword string) error {
 	if user == nil || user.ResetTokenExpires == nil || user.ResetTokenExpires.Before(time.Now()) {
 		return errors.New("invalid or expired reset token")
 	}
-
 	hash, err := s.HashPassword(newPassword)
 	if err != nil {
 		return err
 	}
-
 	return s.userRepo.UpdatePassword(user.ID, hash)
 }
 
@@ -126,7 +114,7 @@ func (s *AuthService) Login(email, password string) (*models.Session, error) {
 		return nil, err
 	}
 	if user == nil || !s.CheckPassword(password, user.PasswordHash) {
-		return nil, nil // Invalid credentials
+		return nil, nil
 	}
 	if !user.IsVerified {
 		return nil, errors.New("please verify your email first")
@@ -150,6 +138,13 @@ func (s *AuthService) GetUserFromRequest(r *http.Request) (*models.User, error) 
 	return s.userRepo.GetByID(session.UserID)
 }
 
+func (s *AuthService) GetUserFromSession(session *models.Session) (*models.User, error) {
+	if session == nil {
+		return nil, nil
+	}
+	return s.userRepo.GetByID(session.UserID)
+}
+
 func (s *AuthService) SetSessionCookie(w http.ResponseWriter, session *models.Session) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,
@@ -157,7 +152,7 @@ func (s *AuthService) SetSessionCookie(w http.ResponseWriter, session *models.Se
 		Path:     "/",
 		Expires:  session.ExpiresAt,
 		HttpOnly: true,
-		Secure:   false, // Set to true in production with HTTPS
+		Secure:   false,
 		SameSite: http.SameSiteStrictMode,
 	})
 }

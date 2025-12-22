@@ -1,13 +1,15 @@
 package handlers
 
 import (
-	"go-to-do/auth"
-	"go-to-do/models"
-	"go-to-do/repository"
+	"encoding/json"
 	"html/template"
 	"log"
 	"net/http"
 	"strconv"
+
+	"go-to-do/auth"
+	"go-to-do/models"
+	"go-to-do/repository"
 )
 
 type TaskHandler struct {
@@ -28,12 +30,7 @@ func NewTaskHandler(repo *repository.TaskRepository, authService *auth.AuthServi
 
 func (h *TaskHandler) requireAuth(w http.ResponseWriter, r *http.Request) *models.User {
 	user, err := h.authService.GetUserFromRequest(r)
-	if err != nil {
-		log.Printf("Auth error: %v", err)
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
-		return nil
-	}
-	if user == nil {
+	if err != nil || user == nil {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return nil
 	}
@@ -45,78 +42,111 @@ func (h *TaskHandler) Home(w http.ResponseWriter, r *http.Request) {
 	if user == nil {
 		return
 	}
-
-	tasks, err := h.repo.GetAllByUser(user.ID)
-	if err != nil {
-		http.Error(w, "Error retrieving tasks", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/html")
+	tasks, _ := h.repo.GetAllByUser(user.ID)
 	h.tmpl.Execute(w, HomePageData{User: user, Tasks: tasks})
 }
 
 func (h *TaskHandler) Add(w http.ResponseWriter, r *http.Request) {
 	user := h.requireAuth(w, r)
-	if user == nil {
-		return
-	}
-
-	if r.Method != http.MethodPost {
+	if user == nil || r.Method != http.MethodPost {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
-
 	if text := r.FormValue("task"); text != "" {
-		if err := h.repo.Create(user.ID, text); err != nil {
-			log.Printf("Error adding task: %v", err)
-		}
+		h.repo.Create(user.ID, text)
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (h *TaskHandler) Toggle(w http.ResponseWriter, r *http.Request) {
 	user := h.requireAuth(w, r)
-	if user == nil {
-		return
-	}
-
-	if r.Method != http.MethodPost {
+	if user == nil || r.Method != http.MethodPost {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
-
-	id, err := strconv.Atoi(r.FormValue("id"))
-	if err != nil {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
-	}
-
-	if err := h.repo.Toggle(id, user.ID); err != nil {
-		log.Printf("Error toggling task: %v", err)
+	if id, err := strconv.Atoi(r.FormValue("id")); err == nil {
+		h.repo.Toggle(id, user.ID)
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (h *TaskHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	user := h.requireAuth(w, r)
+	if user == nil || r.Method != http.MethodPost {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	if id, err := strconv.Atoi(r.FormValue("id")); err == nil {
+		h.repo.Delete(id, user.ID)
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// ============ API Methods ============
+
+func (h *TaskHandler) requireAuthAPI(w http.ResponseWriter, r *http.Request) *models.User {
+	user, err := h.authService.GetUserFromRequest(r)
+	if err != nil || user == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Unauthorized"})
+		return nil
+	}
+	return user
+}
+
+func (h *TaskHandler) APIList(w http.ResponseWriter, r *http.Request) {
+	user := h.requireAuthAPI(w, r)
 	if user == nil {
 		return
 	}
-
-	if r.Method != http.MethodPost {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
-	}
-
-	id, err := strconv.Atoi(r.FormValue("id"))
+	tasks, err := h.repo.GetAllByUser(user.ID)
 	if err != nil {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
+		log.Printf("Error getting tasks: %v", err)
+		tasks = []models.Task{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": tasks})
+}
+
+func (h *TaskHandler) APICreate(w http.ResponseWriter, r *http.Request) {
+	user := h.requireAuthAPI(w, r)
+	if user == nil {
 		return
 	}
-
-	if err := h.repo.Delete(id, user.ID); err != nil {
-		log.Printf("Error deleting task: %v", err)
+	var req struct {
+		Text string `json:"text"`
 	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Text == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Text required"})
+		return
+	}
+	h.repo.Create(user.ID, req.Text)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+func (h *TaskHandler) APIToggle(w http.ResponseWriter, r *http.Request) {
+	user := h.requireAuthAPI(w, r)
+	if user == nil {
+		return
+	}
+	id, _ := strconv.Atoi(r.URL.Query().Get("id"))
+	h.repo.Toggle(id, user.ID)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+func (h *TaskHandler) APIDelete(w http.ResponseWriter, r *http.Request) {
+	user := h.requireAuthAPI(w, r)
+	if user == nil {
+		return
+	}
+	id, _ := strconv.Atoi(r.URL.Query().Get("id"))
+	h.repo.Delete(id, user.ID)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }

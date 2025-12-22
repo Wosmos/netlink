@@ -38,6 +38,11 @@ func (r *UserRepository) InitSchema(ctx context.Context) error {
 	ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token VARCHAR(255);
 	ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token VARCHAR(255);
 	ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMP;
+	ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(20);
+	ALTER TABLE users ADD COLUMN IF NOT EXISTS name VARCHAR(255);
+	ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar VARCHAR(500);
+	ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP;
+	CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
 	`
 	_, err := r.pool.Exec(ctx, schema)
 	return err
@@ -142,4 +147,55 @@ func (r *UserRepository) UpdatePassword(id int, passwordHash string) error {
 		passwordHash, id,
 	)
 	return err
+}
+
+func (r *UserRepository) GetByPhone(phone string) (*models.User, error) {
+	var user models.User
+	err := r.pool.QueryRow(
+		context.Background(),
+		`SELECT id, email, COALESCE(phone, ''), COALESCE(name, ''), password_hash, is_verified, created_at 
+		 FROM users WHERE phone = $1`,
+		phone,
+	).Scan(&user.ID, &user.Email, &user.Phone, &user.Name, &user.PasswordHash, &user.IsVerified, &user.CreatedAt)
+	if err != nil {
+		if err.Error() == "no rows in result set" {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (r *UserRepository) UpdateProfile(id int, name, phone, avatar string) error {
+	_, err := r.pool.Exec(
+		context.Background(),
+		`UPDATE users SET name = $1, phone = $2, avatar = $3 WHERE id = $4`,
+		name, phone, avatar, id,
+	)
+	return err
+}
+
+func (r *UserRepository) SearchUsers(query string, limit int) ([]models.User, error) {
+	rows, err := r.pool.Query(
+		context.Background(),
+		`SELECT id, email, COALESCE(phone, ''), COALESCE(name, ''), COALESCE(avatar, '')
+		 FROM users 
+		 WHERE email ILIKE $1 OR name ILIKE $1 OR phone ILIKE $1
+		 LIMIT $2`,
+		"%"+query+"%", limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []models.User
+	for rows.Next() {
+		var u models.User
+		if err := rows.Scan(&u.ID, &u.Email, &u.Phone, &u.Name, &u.Avatar); err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	return users, nil
 }
