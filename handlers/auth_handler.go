@@ -1,11 +1,12 @@
 package handlers
 
 import (
+	"encoding/json"
+	"go-to-do/auth"
 	"html/template"
 	"log"
 	"net/http"
 	"strings"
-	"go-to-do/auth"
 )
 
 type AuthHandler struct {
@@ -185,4 +186,130 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 	h.authService.ClearSessionCookie(w)
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+// ============ API Methods ============
+
+type APIResponse struct {
+	Success bool        `json:"success"`
+	Message string      `json:"message,omitempty"`
+	Data    interface{} `json:"data,omitempty"`
+	Error   string      `json:"error,omitempty"`
+}
+
+type LoginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type RegisterRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+	Name     string `json:"name"`
+}
+
+// GET /api/auth/me
+func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
+	user, err := h.authService.GetUserFromRequest(r)
+	if err != nil || user == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Not authenticated"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(APIResponse{Success: true, Data: user})
+}
+
+// POST /api/auth/login
+func (h *AuthHandler) APILogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Invalid request"})
+		return
+	}
+
+	email := strings.TrimSpace(strings.ToLower(req.Email))
+	session, err := h.authService.Login(email, req.Password)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: err.Error()})
+		return
+	}
+	if session == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Invalid email or password"})
+		return
+	}
+
+	h.authService.SetSessionCookie(w, session)
+
+	user, _ := h.authService.GetUserFromSession(session)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(APIResponse{Success: true, Data: user})
+}
+
+// POST /api/auth/register
+func (h *AuthHandler) APIRegister(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req RegisterRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Invalid request"})
+		return
+	}
+
+	email := strings.TrimSpace(strings.ToLower(req.Email))
+	if !h.authService.ValidateEmail(email) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Invalid email"})
+		return
+	}
+	if !h.authService.ValidatePassword(req.Password) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Password must be 8-128 characters"})
+		return
+	}
+
+	if err := h.authService.Register(email, req.Password); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		if strings.Contains(err.Error(), "UNIQUE") {
+			json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Email already registered"})
+		} else {
+			json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Registration failed"})
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(APIResponse{Success: true, Message: "Verification email sent"})
+}
+
+// POST /api/auth/logout
+func (h *AuthHandler) APILogout(w http.ResponseWriter, r *http.Request) {
+	if cookie, err := r.Cookie(auth.SessionCookieName); err == nil {
+		h.authService.Logout(cookie.Value)
+	}
+	h.authService.ClearSessionCookie(w)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(APIResponse{Success: true, Message: "Logged out"})
 }
