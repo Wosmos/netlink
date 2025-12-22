@@ -1,6 +1,10 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
 	"net/http"
 	"regexp"
 	"time"
@@ -30,6 +34,12 @@ func NewAuthService(userRepo *repository.UserRepository, sessionRepo *repository
 	return &AuthService{userRepo: userRepo, sessionRepo: sessionRepo}
 }
 
+func (s *AuthService) GenerateToken() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
 func (s *AuthService) HashPassword(password string) (string, error) {
 	bytes, err := bcrypt.GenerateFromPassword([]byte(password), BcryptCost)
 	return string(bytes), err
@@ -53,8 +63,61 @@ func (s *AuthService) Register(email, password string) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.userRepo.Create(email, hash)
+	token := s.GenerateToken()
+	_, err = s.userRepo.Create(email, hash, token)
+	if err == nil {
+		// Mock sending email
+		fmt.Printf("📧 [MOCK EMAIL] To: %s, Body: Your verification link is http://localhost:8080/verify?token=%s\n", email, token)
+	}
 	return err
+}
+
+func (s *AuthService) VerifyEmail(token string) error {
+	user, err := s.userRepo.GetByVerificationToken(token)
+	if err != nil {
+		return err
+	}
+	if user == nil {
+		return errors.New("invalid verification token")
+	}
+	return s.userRepo.UpdateVerificationStatus(user.ID, true)
+}
+
+func (s *AuthService) ForgotPassword(email string) error {
+	user, err := s.userRepo.GetByEmail(email)
+	if err != nil {
+		return err
+	}
+	if user == nil {
+		// Don't reveal if email exists, but we can't send if it doesn't
+		return nil
+	}
+
+	token := s.GenerateToken()
+	expires := time.Now().Add(1 * time.Hour)
+	err = s.userRepo.SetResetToken(user.ID, &token, &expires)
+	if err == nil {
+		// Mock sending email
+		fmt.Printf("📧 [MOCK EMAIL] To: %s, Body: Your password reset link is http://localhost:8080/reset-password?token=%s\n", email, token)
+	}
+	return err
+}
+
+func (s *AuthService) ResetPassword(token string, newPassword string) error {
+	user, err := s.userRepo.GetByResetToken(token)
+	if err != nil {
+		return err
+	}
+	if user == nil || user.ResetTokenExpires == nil || user.ResetTokenExpires.Before(time.Now()) {
+		return errors.New("invalid or expired reset token")
+	}
+
+	hash, err := s.HashPassword(newPassword)
+	if err != nil {
+		return err
+	}
+
+	return s.userRepo.UpdatePassword(user.ID, hash)
 }
 
 func (s *AuthService) Login(email, password string) (*models.Session, error) {
@@ -64,6 +127,9 @@ func (s *AuthService) Login(email, password string) (*models.Session, error) {
 	}
 	if user == nil || !s.CheckPassword(password, user.PasswordHash) {
 		return nil, nil // Invalid credentials
+	}
+	if !user.IsVerified {
+		return nil, errors.New("please verify your email first")
 	}
 	return s.sessionRepo.Create(user.ID, SessionDuration)
 }

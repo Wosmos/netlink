@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"go-to-do/models"
 
@@ -22,19 +23,32 @@ func (r *UserRepository) InitSchema(ctx context.Context) error {
 		id SERIAL PRIMARY KEY,
 		email VARCHAR(255) UNIQUE NOT NULL,
 		password_hash VARCHAR(255) NOT NULL,
+		is_verified BOOLEAN DEFAULT FALSE,
+		verification_token VARCHAR(255),
+		reset_token VARCHAR(255),
+		reset_token_expires TIMESTAMP,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);
-	CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);`
+	CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+	CREATE INDEX IF NOT EXISTS idx_users_verification_token ON users(verification_token);
+	CREATE INDEX IF NOT EXISTS idx_users_reset_token ON users(reset_token);
+
+	-- Add columns if they don't exist (for existing tables)
+	ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE;
+	ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token VARCHAR(255);
+	ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token VARCHAR(255);
+	ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMP;
+	`
 	_, err := r.pool.Exec(ctx, schema)
 	return err
 }
 
-func (r *UserRepository) Create(email, passwordHash string) (int64, error) {
+func (r *UserRepository) Create(email, passwordHash, verificationToken string) (int64, error) {
 	var id int64
 	err := r.pool.QueryRow(
 		context.Background(),
-		"INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id",
-		email, passwordHash,
+		"INSERT INTO users (email, password_hash, verification_token) VALUES ($1, $2, $3) RETURNING id",
+		email, passwordHash, verificationToken,
 	).Scan(&id)
 	return id, err
 }
@@ -43,9 +57,9 @@ func (r *UserRepository) GetByEmail(email string) (*models.User, error) {
 	var user models.User
 	err := r.pool.QueryRow(
 		context.Background(),
-		"SELECT id, email, password_hash, created_at FROM users WHERE email = $1",
+		"SELECT id, email, password_hash, is_verified, verification_token, reset_token, reset_token_expires, created_at FROM users WHERE email = $1",
 		email,
-	).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.CreatedAt)
+	).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.IsVerified, &user.VerificationToken, &user.ResetToken, &user.ResetTokenExpires, &user.CreatedAt)
 	if err != nil {
 		if err.Error() == "no rows in result set" {
 			return nil, nil
@@ -59,9 +73,9 @@ func (r *UserRepository) GetByID(id int) (*models.User, error) {
 	var user models.User
 	err := r.pool.QueryRow(
 		context.Background(),
-		"SELECT id, email, password_hash, created_at FROM users WHERE id = $1",
+		"SELECT id, email, password_hash, is_verified, verification_token, reset_token, reset_token_expires, created_at FROM users WHERE id = $1",
 		id,
-	).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.CreatedAt)
+	).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.IsVerified, &user.VerificationToken, &user.ResetToken, &user.ResetTokenExpires, &user.CreatedAt)
 	if err != nil {
 		if err.Error() == "no rows in result set" {
 			return nil, nil
@@ -69,4 +83,63 @@ func (r *UserRepository) GetByID(id int) (*models.User, error) {
 		return nil, err
 	}
 	return &user, nil
+}
+
+func (r *UserRepository) GetByVerificationToken(token string) (*models.User, error) {
+	var user models.User
+	err := r.pool.QueryRow(
+		context.Background(),
+		"SELECT id, email, password_hash, is_verified, verification_token, reset_token, reset_token_expires, created_at FROM users WHERE verification_token = $1",
+		token,
+	).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.IsVerified, &user.VerificationToken, &user.ResetToken, &user.ResetTokenExpires, &user.CreatedAt)
+	if err != nil {
+		if err.Error() == "no rows in result set" {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (r *UserRepository) GetByResetToken(token string) (*models.User, error) {
+	var user models.User
+	err := r.pool.QueryRow(
+		context.Background(),
+		"SELECT id, email, password_hash, is_verified, verification_token, reset_token, reset_token_expires, created_at FROM users WHERE reset_token = $1",
+		token,
+	).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.IsVerified, &user.VerificationToken, &user.ResetToken, &user.ResetTokenExpires, &user.CreatedAt)
+	if err != nil {
+		if err.Error() == "no rows in result set" {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (r *UserRepository) UpdateVerificationStatus(id int, isVerified bool) error {
+	_, err := r.pool.Exec(
+		context.Background(),
+		"UPDATE users SET is_verified = $1, verification_token = NULL WHERE id = $2",
+		isVerified, id,
+	)
+	return err
+}
+
+func (r *UserRepository) SetResetToken(id int, token *string, expires *time.Time) error {
+	_, err := r.pool.Exec(
+		context.Background(),
+		"UPDATE users SET reset_token = $1, reset_token_expires = $2 WHERE id = $3",
+		token, expires, id,
+	)
+	return err
+}
+
+func (r *UserRepository) UpdatePassword(id int, passwordHash string) error {
+	_, err := r.pool.Exec(
+		context.Background(),
+		"UPDATE users SET password_hash = $1, reset_token = NULL, reset_token_expires = NULL WHERE id = $2",
+		passwordHash, id,
+	)
+	return err
 }
