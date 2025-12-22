@@ -5,28 +5,35 @@ import (
 	"log"
 	"net/http"
 	"strings"
-
 	"go-to-do/auth"
 )
 
 type AuthHandler struct {
-	authService  *auth.AuthService
-	loginTmpl    *template.Template
-	registerTmpl *template.Template
+	authService        *auth.AuthService
+	loginTmpl          *template.Template
+	registerTmpl       *template.Template
+	forgotPasswordTmpl *template.Template
+	resetPasswordTmpl  *template.Template
 }
 
 func NewAuthHandler(authService *auth.AuthService) *AuthHandler {
 	loginTmpl := template.Must(template.ParseFiles("templates/login.html"))
 	registerTmpl := template.Must(template.ParseFiles("templates/register.html"))
+	forgotPasswordTmpl := template.Must(template.ParseFiles("templates/forgot_password.html"))
+	resetPasswordTmpl := template.Must(template.ParseFiles("templates/reset_password.html"))
 	return &AuthHandler{
-		authService:  authService,
-		loginTmpl:    loginTmpl,
-		registerTmpl: registerTmpl,
+		authService:        authService,
+		loginTmpl:          loginTmpl,
+		registerTmpl:       registerTmpl,
+		forgotPasswordTmpl: forgotPasswordTmpl,
+		resetPasswordTmpl:  resetPasswordTmpl,
 	}
 }
 
 type AuthPageData struct {
-	Error string
+	Error   string
+	Success string
+	Token   string
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -37,7 +44,10 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method == http.MethodGet {
-		h.loginTmpl.Execute(w, nil)
+		h.loginTmpl.Execute(w, AuthPageData{
+			Success: r.URL.Query().Get("success"),
+			Error:   r.URL.Query().Get("error"),
+		})
 		return
 	}
 
@@ -46,8 +56,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	session, err := h.authService.Login(email, password)
 	if err != nil {
-		log.Printf("Login error: %v", err)
-		h.loginTmpl.Execute(w, AuthPageData{Error: "An error occurred"})
+		h.loginTmpl.Execute(w, AuthPageData{Error: err.Error()})
 		return
 	}
 	if session == nil {
@@ -99,15 +108,75 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Auto-login after registration
-	session, err := h.authService.Login(email, password)
-	if err != nil || session == nil {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+	// Redirect to login with success message instead of auto-login
+	http.Redirect(w, r, "/login?success=Verification email sent! Please check your inbox.", http.StatusSeeOther)
+}
+
+func (h *AuthHandler) Verify(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		http.Redirect(w, r, "/login?error=Invalid verification link", http.StatusSeeOther)
 		return
 	}
 
-	h.authService.SetSessionCookie(w, session)
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	if err := h.authService.VerifyEmail(token); err != nil {
+		http.Redirect(w, r, "/login?error=Verification failed: "+err.Error(), http.StatusSeeOther)
+		return
+	}
+
+	http.Redirect(w, r, "/login?success=Email verified! You can now log in.", http.StatusSeeOther)
+}
+
+func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		h.forgotPasswordTmpl.Execute(w, nil)
+		return
+	}
+
+	email := strings.TrimSpace(strings.ToLower(r.FormValue("email")))
+	if err := h.authService.ForgotPassword(email); err != nil {
+		log.Printf("Forgot password error: %v", err)
+		h.forgotPasswordTmpl.Execute(w, AuthPageData{Error: "An error occurred"})
+		return
+	}
+
+	h.forgotPasswordTmpl.Execute(w, AuthPageData{Success: "If that email is registered, you will receive a reset link."})
+}
+
+func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		token = r.FormValue("token")
+	}
+
+	if token == "" {
+		http.Redirect(w, r, "/login?error=Invalid reset link", http.StatusSeeOther)
+		return
+	}
+
+	if r.Method == http.MethodGet {
+		h.resetPasswordTmpl.Execute(w, AuthPageData{Token: token})
+		return
+	}
+
+	password := r.FormValue("password")
+	confirmPassword := r.FormValue("confirm_password")
+
+	if !h.authService.ValidatePassword(password) {
+		h.resetPasswordTmpl.Execute(w, AuthPageData{Error: "Password must be 8-128 characters", Token: token})
+		return
+	}
+	if password != confirmPassword {
+		h.resetPasswordTmpl.Execute(w, AuthPageData{Error: "Passwords do not match", Token: token})
+		return
+	}
+
+	if err := h.authService.ResetPassword(token, password); err != nil {
+		h.resetPasswordTmpl.Execute(w, AuthPageData{Error: err.Error(), Token: token})
+		return
+	}
+
+	http.Redirect(w, r, "/login?success=Password reset successful! You can now log in.", http.StatusSeeOther)
 }
 
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {

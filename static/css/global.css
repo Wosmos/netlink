@@ -153,6 +153,17 @@ input:focus {
     text-align: center;
 }
 
+.alert-success {
+    background: #ecfdf5;
+    color: var(--success);
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    margin-bottom: 20px;
+    border: 1px solid #d1fae5;
+    text-align: center;
+}
+
 /* 4. DASHBOARD SPECIFIC (The Navbar & ToDo Items) */
 
 nav {
