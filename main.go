@@ -36,10 +36,11 @@ func main() {
 		log.Fatal("Failed to parse config:", err)
 	}
 
-	poolConfig.MaxConns = 100
-	poolConfig.MinConns = 10
+	poolConfig.MaxConns = 200
+	poolConfig.MinConns = 20
 	poolConfig.MaxConnLifetime = 30 * time.Minute
 	poolConfig.MaxConnIdleTime = 5 * time.Minute
+	poolConfig.HealthCheckPeriod = 30 * time.Second
 
 	pool, err := pgxpool.NewWithConfig(context.Background(), poolConfig)
 	if err != nil {
