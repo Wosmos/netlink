@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"go-to-do/models"
 	"go-to-do/repository"
+	"go-to-do/services"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -24,12 +26,17 @@ const (
 var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9.!#$%&'*+/=?^_{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$`)
 
 type AuthService struct {
-	userRepo    *repository.UserRepository
-	sessionRepo *repository.SessionRepository
+	userRepo     *repository.UserRepository
+	sessionRepo  *repository.SessionRepository
+	emailService *services.EmailService
 }
 
 func NewAuthService(userRepo *repository.UserRepository, sessionRepo *repository.SessionRepository) *AuthService {
-	return &AuthService{userRepo: userRepo, sessionRepo: sessionRepo}
+	return &AuthService{
+		userRepo:     userRepo,
+		sessionRepo:  sessionRepo,
+		emailService: services.NewEmailService(),
+	}
 }
 
 func (s *AuthService) GenerateToken() string {
@@ -63,7 +70,21 @@ func (s *AuthService) Register(email, password string) error {
 	token := s.GenerateToken()
 	_, err = s.userRepo.Create(email, hash, token)
 	if err == nil {
-		fmt.Printf("[MOCK EMAIL] To: %s, Verify: http://localhost:8080/verify?token=%s\n", email, token)
+		// Send verification email using Resend
+		if emailErr := s.emailService.SendVerificationEmail(email, token); emailErr != nil {
+			fmt.Printf("Failed to send verification email: %v\n", emailErr)
+			// Check if it's a Resend restriction error
+			if strings.Contains(emailErr.Error(), "403") || strings.Contains(emailErr.Error(), "422") {
+				fmt.Printf("⚠️  Email sending restricted. This is likely because:\n")
+				fmt.Printf("   - You're on Resend's free tier which only allows sending to verified emails\n")
+				fmt.Printf("   - The recipient email (%s) is not verified in your Resend account\n", email)
+				fmt.Printf("   - To send to any email, upgrade your Resend plan\n")
+			}
+			// Still print to console as fallback
+			fmt.Printf("[FALLBACK EMAIL] To: %s, Verify: http://localhost:3000/verify?token=%s\n", email, token)
+		} else {
+			fmt.Printf("✅ Verification email sent successfully to: %s\n", email)
+		}
 	}
 	return err
 }
@@ -88,7 +109,21 @@ func (s *AuthService) ForgotPassword(email string) error {
 	expires := time.Now().Add(1 * time.Hour)
 	err = s.userRepo.SetResetToken(user.ID, &token, &expires)
 	if err == nil {
-		fmt.Printf("[MOCK EMAIL] To: %s, Reset: http://localhost:8080/reset-password?token=%s\n", email, token)
+		// Send password reset email using Resend
+		if emailErr := s.emailService.SendPasswordResetEmail(email, token); emailErr != nil {
+			fmt.Printf("Failed to send password reset email: %v\n", emailErr)
+			// Check if it's a Resend restriction error
+			if strings.Contains(emailErr.Error(), "403") || strings.Contains(emailErr.Error(), "422") {
+				fmt.Printf("⚠️  Email sending restricted. This is likely because:\n")
+				fmt.Printf("   - You're on Resend's free tier which only allows sending to verified emails\n")
+				fmt.Printf("   - The recipient email (%s) is not verified in your Resend account\n", email)
+				fmt.Printf("   - To send to any email, upgrade your Resend plan\n")
+			}
+			// Still print to console as fallback
+			fmt.Printf("[FALLBACK EMAIL] To: %s, Reset: http://localhost:3000/reset-password?token=%s\n", email, token)
+		} else {
+			fmt.Printf("✅ Password reset email sent successfully to: %s\n", email)
+		}
 	}
 	return err
 }
@@ -165,4 +200,22 @@ func (s *AuthService) ClearSessionCookie(w http.ResponseWriter) {
 		MaxAge:   -1,
 		HttpOnly: true,
 	})
+}
+
+func (s *AuthService) TestEmailDelivery(to string) error {
+	return s.emailService.Send(to, "🧪 Test Email from Your App", `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Test Email</title>
+</head>
+<body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+    <h2 style="color: #4f46e5;">✅ Email Service Test</h2>
+    <p>This is a test email to verify that your Resend integration is working correctly.</p>
+    <p><strong>Timestamp:</strong> `+time.Now().Format("2006-01-02 15:04:05")+`</p>
+    <p>If you received this email, your email service is configured properly!</p>
+</body>
+</html>
+	`)
 }

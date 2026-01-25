@@ -136,6 +136,10 @@ func main() {
 	http.HandleFunc("/api/auth/login", corsMiddleware(authHandler.APILogin))
 	http.HandleFunc("/api/auth/register", corsMiddleware(authHandler.APIRegister))
 	http.HandleFunc("/api/auth/logout", corsMiddleware(authHandler.APILogout))
+	http.HandleFunc("/api/auth/forgot-password", corsMiddleware(authHandler.APIForgotPassword))
+	http.HandleFunc("/api/auth/reset-password", corsMiddleware(authHandler.APIResetPassword))
+	http.HandleFunc("/api/auth/verify", corsMiddleware(authHandler.APIVerify))
+	http.HandleFunc("/api/test-email", corsMiddleware(authHandler.TestEmail))
 
 	// Tasks API
 	http.HandleFunc("/api/tasks", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {

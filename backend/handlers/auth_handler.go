@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"go-to-do/auth"
 	"html/template"
 	"log"
@@ -312,4 +313,145 @@ func (h *AuthHandler) APILogout(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(APIResponse{Success: true, Message: "Logged out"})
+}
+
+// POST /api/auth/forgot-password
+func (h *AuthHandler) APIForgotPassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Invalid request"})
+		return
+	}
+
+	email := strings.TrimSpace(strings.ToLower(req.Email))
+	if !h.authService.ValidateEmail(email) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Invalid email"})
+		return
+	}
+
+	if err := h.authService.ForgotPassword(email); err != nil {
+		log.Printf("Forgot password error: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "An error occurred"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(APIResponse{Success: true, Message: "If that email is registered, you will receive a reset link"})
+}
+
+// POST /api/auth/reset-password
+func (h *AuthHandler) APIResetPassword(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Token    string `json:"token"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Invalid request"})
+		return
+	}
+
+	if req.Token == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Token required"})
+		return
+	}
+
+	if !h.authService.ValidatePassword(req.Password) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Password must be 8-128 characters"})
+		return
+	}
+
+	if err := h.authService.ResetPassword(req.Token, req.Password); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(APIResponse{Success: true, Message: "Password reset successful"})
+}
+
+// GET /api/auth/verify - API version of email verification
+func (h *AuthHandler) APIVerify(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Invalid verification link"})
+		return
+	}
+
+	if err := h.authService.VerifyEmail(token); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Verification failed: " + err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(APIResponse{Success: true, Message: "Email verified successfully! You can now log in."})
+}
+
+// POST /api/test-email - Test email functionality
+func (h *AuthHandler) TestEmail(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Invalid request"})
+		return
+	}
+
+	// Test with Resend test address first
+	testEmail := "delivered@resend.dev"
+	if req.Email != "" {
+		testEmail = req.Email
+	}
+
+	if err := h.authService.TestEmailDelivery(testEmail); err != nil {
+		log.Printf("Test email error: %v", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(APIResponse{Success: true, Message: fmt.Sprintf("Test email sent to %s", testEmail)})
 }
