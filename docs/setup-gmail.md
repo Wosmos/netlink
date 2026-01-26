@@ -26,18 +26,18 @@ Open `go-backend/.env` and update it:
 
 ```env
 # Database
-DATABASE_URL=postgresql://neondb_owner:npg_UICuvnS47XWb@ep-little-art-a1exfej6-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+DATABASE_URL=<db-url>
 
 # App
 APP_URL=http://localhost:3000
 
 # Gmail SMTP (NEW - Add these lines)
-GMAIL_USERNAME=m.wasifmalik17@gmail.com
-GMAIL_APP_PASSWORD=abcdefghijklmnop
+GMAIL_USERNAME=<email>
+GMAIL_APP_PASSWORD=<app-password>
 FROM_EMAIL=NetLink <m.wasifmalik17@gmail.com>
 
 # Resend (Keep for backup, but Gmail will be used if configured)
-RESEND_API_KEY=re_18R3wKAs_Mp4RS1tRzJ4jzvinCi3THqHk
+RESEND_API_KEY=<api_key>  
 ```
 
 **Important:** 
