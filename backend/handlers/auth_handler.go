@@ -85,6 +85,8 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	email := strings.TrimSpace(strings.ToLower(r.FormValue("email")))
 	password := r.FormValue("password")
 	confirmPassword := r.FormValue("confirm_password")
+	name := strings.TrimSpace(r.FormValue("name"))
+	phone := strings.TrimSpace(r.FormValue("phone"))
 
 	// Validation
 	if !h.authService.ValidateEmail(email) {
@@ -100,7 +102,16 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.authService.Register(email, password); err != nil {
+	// Prepare optional fields
+	var namePtr, phonePtr *string
+	if name != "" {
+		namePtr = &name
+	}
+	if phone != "" {
+		phonePtr = &phone
+	}
+
+	if err := h.authService.Register(email, password, namePtr, phonePtr); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE") {
 			h.registerTmpl.Execute(w, AuthPageData{Error: "Email already registered"})
 			return
@@ -207,6 +218,7 @@ type RegisterRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 	Name     string `json:"name"`
+	Phone    string `json:"phone"`
 }
 
 // GET /api/auth/me
@@ -289,7 +301,18 @@ func (h *AuthHandler) APIRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.authService.Register(email, req.Password); err != nil {
+	// Prepare optional fields
+	var namePtr, phonePtr *string
+	if req.Name != "" {
+		name := strings.TrimSpace(req.Name)
+		namePtr = &name
+	}
+	if req.Phone != "" {
+		phone := strings.TrimSpace(req.Phone)
+		phonePtr = &phone
+	}
+
+	if err := h.authService.Register(email, req.Password, namePtr, phonePtr); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		if strings.Contains(err.Error(), "UNIQUE") {

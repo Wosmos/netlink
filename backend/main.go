@@ -77,6 +77,9 @@ func main() {
 	if err := chatRepo.InitSchema(ctx); err != nil {
 		log.Fatal("Failed to init chat schema:", err)
 	}
+	if err := chatRepo.InitReactionsSchema(ctx); err != nil {
+		log.Fatal("Failed to init reactions schema:", err)
+	}
 	fmt.Println("✅ Database schema initialized")
 
 	// Initialize WebSocket hub
@@ -203,6 +206,20 @@ func main() {
 	http.HandleFunc("/api/conversations/messages/edit", corsMiddleware(chatHandler.EditMessage))
 	http.HandleFunc("/api/conversations/read", corsMiddleware(chatHandler.MarkAsRead))
 	http.HandleFunc("/api/conversations/typing", corsMiddleware(chatHandler.SendTyping))
+
+	// Message actions
+	http.HandleFunc("/api/messages/react", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "POST":
+			chatHandler.ReactToMessage(w, r)
+		case "DELETE":
+			chatHandler.RemoveReaction(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	http.HandleFunc("/api/messages/forward", corsMiddleware(chatHandler.ForwardMessage))
+	http.HandleFunc("/api/messages/delete", corsMiddleware(chatHandler.DeleteMessage))
 	http.HandleFunc("/api/conversations/delete", corsMiddleware(chatHandler.DeleteConversation))
 
 	// Users API

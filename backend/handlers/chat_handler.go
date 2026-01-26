@@ -535,3 +535,176 @@ func (h *ChatHandler) DeleteConversation(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
+
+// POST /api/messages/react
+func (h *ChatHandler) ReactToMessage(w http.ResponseWriter, r *http.Request) {
+	userID := h.requireAuth(w, r)
+	if userID == 0 {
+		return
+	}
+
+	msgIDStr := r.URL.Query().Get("msg_id")
+	msgID, err := strconv.Atoi(msgIDStr)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid message ID"})
+		return
+	}
+
+	var req struct {
+		Emoji string `json:"emoji"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Emoji == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Emoji required"})
+		return
+	}
+
+	if err := h.repo.AddReaction(msgID, userID, req.Emoji); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to add reaction"})
+		return
+	}
+
+	// Get updated reactions
+	reactions, _ := h.repo.GetMessageReactions(msgID)
+
+	// Broadcast reaction to conversation members
+	// TODO: Get conversation ID from message and broadcast
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": reactions})
+}
+
+// DELETE /api/messages/react
+func (h *ChatHandler) RemoveReaction(w http.ResponseWriter, r *http.Request) {
+	userID := h.requireAuth(w, r)
+	if userID == 0 {
+		return
+	}
+
+	msgIDStr := r.URL.Query().Get("msg_id")
+	msgID, err := strconv.Atoi(msgIDStr)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid message ID"})
+		return
+	}
+
+	emoji := r.URL.Query().Get("emoji")
+	if emoji == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Emoji required"})
+		return
+	}
+
+	if err := h.repo.RemoveReaction(msgID, userID, emoji); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to remove reaction"})
+		return
+	}
+
+	// Get updated reactions
+	reactions, _ := h.repo.GetMessageReactions(msgID)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": reactions})
+}
+
+// POST /api/messages/forward
+func (h *ChatHandler) ForwardMessage(w http.ResponseWriter, r *http.Request) {
+	userID := h.requireAuth(w, r)
+	if userID == 0 {
+		return
+	}
+
+	var req struct {
+		MessageID     int   `json:"message_id"`
+		TargetConvIDs []int `json:"target_conversation_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid request"})
+		return
+	}
+
+	if len(req.TargetConvIDs) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Target conversations required"})
+		return
+	}
+
+	var forwardedMessages []*models.Message
+	for _, targetConvID := range req.TargetConvIDs {
+		// Verify user is member of target conversation
+		_, err := h.repo.GetConversationByID(targetConvID, userID)
+		if err != nil {
+			continue // Skip if not a member
+		}
+
+		msg, err := h.repo.ForwardMessage(req.MessageID, targetConvID, userID)
+		if err != nil {
+			continue
+		}
+
+		// Get sender info
+		sender, _ := h.userRepo.GetByID(userID)
+		msg.Sender = sender
+
+		forwardedMessages = append(forwardedMessages, msg)
+
+		// Broadcast to conversation members
+		memberIDs, _ := h.repo.GetConversationMemberIDs(targetConvID)
+		payload, _ := json.Marshal(msg)
+		h.hub.BroadcastToUsers(memberIDs, &websocket.Event{
+			Type:           websocket.EventTypeMessage,
+			ConversationID: targetConvID,
+			UserID:         userID,
+			Payload:        payload,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"data":    forwardedMessages,
+		"count":   len(forwardedMessages),
+	})
+}
+
+// DELETE /api/messages/delete
+func (h *ChatHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
+	userID := h.requireAuth(w, r)
+	if userID == 0 {
+		return
+	}
+
+	msgIDStr := r.URL.Query().Get("msg_id")
+	msgID, err := strconv.Atoi(msgIDStr)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid message ID"})
+		return
+	}
+
+	if err := h.repo.DeleteMessage(msgID, userID); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to delete message"})
+		return
+	}
+
+	// TODO: Broadcast deletion to conversation members
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}

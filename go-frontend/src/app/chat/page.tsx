@@ -1,4 +1,10 @@
+'use client';
+
+import { useLanguage } from '@/context/LanguageContext';
+
 export default function ChatPage() {
+  const { t } = useLanguage();
+  
   return (
     <div className="flex-1 flex items-center justify-center bg-[#050505] relative overflow-hidden">
       {/* Animated Grid Background */}
@@ -20,8 +26,12 @@ export default function ChatPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
           </svg>
         </div>
-        <h2 className="text-xl font-mono text-cyan-100 uppercase tracking-widest mb-2">Select Target</h2>
-        <p className="text-sm text-cyan-500/50 font-mono">Initialize connection from sidebar</p>
+        <h2 className="text-xl font-mono text-cyan-100 uppercase tracking-widest mb-2">
+          {t('SELECT_TARGET', 'Select a Chat')}
+        </h2>
+        <p className="text-sm text-cyan-500/50 font-mono">
+          {t('INITIALIZE_CONNECTION_FROM_SIDEBAR', 'Choose a conversation from the sidebar')}
+        </p>
       </div>
     </div>
   );

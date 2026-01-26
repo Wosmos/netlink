@@ -48,12 +48,12 @@ func (r *UserRepository) InitSchema(ctx context.Context) error {
 	return err
 }
 
-func (r *UserRepository) Create(email, passwordHash, verificationToken string) (int64, error) {
+func (r *UserRepository) Create(email, passwordHash, verificationToken string, name, phone *string) (int64, error) {
 	var id int64
 	err := r.pool.QueryRow(
 		context.Background(),
-		"INSERT INTO users (email, password_hash, verification_token) VALUES ($1, $2, $3) RETURNING id",
-		email, passwordHash, verificationToken,
+		"INSERT INTO users (email, password_hash, verification_token, name, phone) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+		email, passwordHash, verificationToken, name, phone,
 	).Scan(&id)
 	return id, err
 }

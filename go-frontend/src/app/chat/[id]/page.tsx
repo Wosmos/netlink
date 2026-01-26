@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { api, Message, Conversation } from '@/lib/api';
 import { wsClient } from '@/lib/websocket';
 import { useAuth } from '@/context/AuthContext';
+import { cache, CACHE_KEYS } from '@/lib/cache';
 
 export default function ConversationPage() {
   const { id } = useParams();
@@ -61,12 +62,18 @@ export default function ConversationPage() {
     let mounted = true;
     
     async function fetchData() {
-      setLoading(true);
+      // Don't show loading if we have cached data
+      const cachedMessages = cache.get<Message[]>(CACHE_KEYS.messages(convId));
+      if (!cachedMessages) {
+        setLoading(true);
+      }
+      
       const [convRes, msgRes, onlineRes] = await Promise.all([
         api.getConversations(),
         api.getMessages(convId),
         api.getOnlineUsers(),
       ]);
+      
       if (!mounted) return;
       
       if (convRes.success && convRes.data) {
@@ -77,19 +84,19 @@ export default function ConversationPage() {
       if (onlineRes.success && onlineRes.data) setOnlineUsers(onlineRes.data.online_users || []);
       setLoading(false);
       api.markAsRead(convId);
-      setTimeout(() => scrollToBottom(false), 100);
+      setTimeout(() => scrollToBottom(false), 10); // Reduced from 100ms
     }
     
     fetchData();
     
+    // Reduced polling interval - only for online status
     const interval = setInterval(async () => {
       if (document.hidden) return;
-      const [msgRes, onlineRes] = await Promise.all([api.getMessages(convId), api.getOnlineUsers()]);
-      if (mounted && msgRes.success && msgRes.data) {
-        setMessages(prev => JSON.stringify(prev) !== JSON.stringify(msgRes.data) ? msgRes.data! : prev);
+      const onlineRes = await api.getOnlineUsers();
+      if (mounted && onlineRes.success && onlineRes.data) {
+        setOnlineUsers(onlineRes.data.online_users || []);
       }
-      if (mounted && onlineRes.success && onlineRes.data) setOnlineUsers(onlineRes.data.online_users || []);
-    }, 3000);
+    }, 15000); // 15 seconds
 
     return () => { mounted = false; clearInterval(interval); };
   }, [convId, scrollToBottom]);
@@ -97,9 +104,40 @@ export default function ConversationPage() {
   useEffect(() => {
     const unsubMessage = wsClient.on('message', (event, data) => {
       if (event.conversation_id === convId && data) {
-        setMessages(prev => prev.some(m => m.id === data.id) ? prev : [...prev, data]);
+        setMessages(prev => {
+          // If this is our own message from WebSocket, check if we already have it
+          if (data.sender_id === user?.id) {
+            // Check if we already have this exact message (by ID or by recent content match)
+            const alreadyExists = prev.some(m => m.id === data.id);
+            if (alreadyExists) {
+              return prev; // Skip duplicate
+            }
+            // Check if we have a temp message with same content (within last 2 seconds)
+            const tempMsgIndex = prev.findIndex(m => 
+              m.id < 0 && // Temp messages have negative IDs
+              m.content === data.content &&
+              Math.abs(new Date(m.created_at).getTime() - new Date(data.created_at).getTime()) < 2000
+            );
+            if (tempMsgIndex !== -1) {
+              // Replace temp message with real one
+              const newMessages = [...prev];
+              newMessages[tempMsgIndex] = data;
+              return newMessages;
+            }
+          }
+          
+          // Check if message already exists (by ID)
+          if (prev.some(m => m.id === data.id)) {
+            return prev;
+          }
+          
+          // New message from someone else
+          return [...prev, data];
+        });
         setTyping(prev => prev.filter(uid => uid !== data.sender_id));
-        api.markAsRead(convId);
+        if (data.sender_id !== user?.id) {
+          api.markAsRead(convId);
+        }
       }
     });
     const unsubTyping = wsClient.on('typing', (event) => {
@@ -144,10 +182,31 @@ export default function ConversationPage() {
     if (!newMessage.trim()) return;
     const content = newMessage;
     setNewMessage('');
+    
+    // Optimistic update - show message immediately with negative temp ID
+    const tempId = -Date.now(); // Negative ID to distinguish from real messages
+    const tempMsg: Message = {
+      id: tempId,
+      conversation_id: convId,
+      sender_id: user!.id,
+      sender: user!,
+      type: 'text',
+      content: content,
+      read_by: [user!.id],
+      created_at: new Date().toISOString(),
+    };
+    setMessages(prev => [...prev, tempMsg]);
+    setTimeout(() => scrollToBottom(true), 10);
+    
+    // Send to server
     const res = await api.sendMessage(convId, content);
     if (res.success && res.data) {
-      setMessages(prev => prev.some(m => m.id === res.data!.id) ? prev : [...prev, res.data!]);
-      setTimeout(() => scrollToBottom(true), 50);
+      // Replace temp message with real one from server
+      setMessages(prev => prev.map(m => m.id === tempId ? res.data! : m));
+    } else {
+      // Remove temp message on error
+      setMessages(prev => prev.filter(m => m.id !== tempId));
+      alert('Failed to send message');
     }
   }
 

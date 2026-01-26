@@ -17,7 +17,8 @@ func NewNoteRepository(pool *pgxpool.Pool) *NoteRepository {
 }
 
 func (r *NoteRepository) InitSchema(ctx context.Context) error {
-	schema := `
+	// Create table if not exists
+	createTable := `
 	CREATE TABLE IF NOT EXISTS notes (
 		id SERIAL PRIMARY KEY,
 		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -27,10 +28,37 @@ func (r *NoteRepository) InitSchema(ctx context.Context) error {
 		pinned BOOLEAN DEFAULT FALSE,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-	);
+	);`
+
+	// Add conversation_id column if it doesn't exist
+	alterTable := `
+	DO $$ 
+	BEGIN
+		IF NOT EXISTS (
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name='notes' AND column_name='conversation_id'
+		) THEN
+			ALTER TABLE notes ADD COLUMN conversation_id INTEGER REFERENCES conversations(id) ON DELETE CASCADE;
+		END IF;
+	END $$;`
+
+	// Create indexes
+	createIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_notes_user ON notes(user_id);
+	CREATE INDEX IF NOT EXISTS idx_notes_conversation ON notes(conversation_id);
 	CREATE INDEX IF NOT EXISTS idx_notes_pinned ON notes(user_id, pinned DESC, updated_at DESC);`
-	_, err := r.pool.Exec(ctx, schema)
+
+	_, err := r.pool.Exec(ctx, createTable)
+	if err != nil {
+		return err
+	}
+
+	_, err = r.pool.Exec(ctx, alterTable)
+	if err != nil {
+		return err
+	}
+
+	_, err = r.pool.Exec(ctx, createIndexes)
 	return err
 }
 
@@ -40,9 +68,21 @@ func (r *NoteRepository) Create(userID int, title, content, color string) (*mode
 		context.Background(),
 		`INSERT INTO notes (user_id, title, content, color) 
 		 VALUES ($1, $2, $3, $4) 
-		 RETURNING id, user_id, title, content, color, pinned, created_at, updated_at`,
+		 RETURNING id, user_id, conversation_id, title, content, color, pinned, created_at, updated_at`,
 		userID, title, content, color,
-	).Scan(&note.ID, &note.UserID, &note.Title, &note.Content, &note.Color, &note.Pinned, &note.CreatedAt, &note.UpdatedAt)
+	).Scan(&note.ID, &note.UserID, &note.ConversationID, &note.Title, &note.Content, &note.Color, &note.Pinned, &note.CreatedAt, &note.UpdatedAt)
+	return &note, err
+}
+
+func (r *NoteRepository) CreateForConversation(userID, conversationID int, title, content, color string) (*models.Note, error) {
+	var note models.Note
+	err := r.pool.QueryRow(
+		context.Background(),
+		`INSERT INTO notes (user_id, conversation_id, title, content, color) 
+		 VALUES ($1, $2, $3, $4, $5) 
+		 RETURNING id, user_id, conversation_id, title, content, color, pinned, created_at, updated_at`,
+		userID, conversationID, title, content, color,
+	).Scan(&note.ID, &note.UserID, &note.ConversationID, &note.Title, &note.Content, &note.Color, &note.Pinned, &note.CreatedAt, &note.UpdatedAt)
 	return &note, err
 }
 
@@ -50,10 +90,10 @@ func (r *NoteRepository) GetByID(id, userID int) (*models.Note, error) {
 	var note models.Note
 	err := r.pool.QueryRow(
 		context.Background(),
-		`SELECT id, user_id, title, content, color, pinned, created_at, updated_at 
+		`SELECT id, user_id, conversation_id, title, content, color, pinned, created_at, updated_at 
 		 FROM notes WHERE id = $1 AND user_id = $2`,
 		id, userID,
-	).Scan(&note.ID, &note.UserID, &note.Title, &note.Content, &note.Color, &note.Pinned, &note.CreatedAt, &note.UpdatedAt)
+	).Scan(&note.ID, &note.UserID, &note.ConversationID, &note.Title, &note.Content, &note.Color, &note.Pinned, &note.CreatedAt, &note.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -63,8 +103,8 @@ func (r *NoteRepository) GetByID(id, userID int) (*models.Note, error) {
 func (r *NoteRepository) GetAllByUser(userID int) ([]models.Note, error) {
 	rows, err := r.pool.Query(
 		context.Background(),
-		`SELECT id, user_id, title, content, color, pinned, created_at, updated_at 
-		 FROM notes WHERE user_id = $1 
+		`SELECT id, user_id, conversation_id, title, content, color, pinned, created_at, updated_at 
+		 FROM notes WHERE user_id = $1 AND conversation_id IS NULL
 		 ORDER BY pinned DESC, updated_at DESC`,
 		userID,
 	)
@@ -76,7 +116,31 @@ func (r *NoteRepository) GetAllByUser(userID int) ([]models.Note, error) {
 	var notes []models.Note
 	for rows.Next() {
 		var note models.Note
-		if err := rows.Scan(&note.ID, &note.UserID, &note.Title, &note.Content, &note.Color, &note.Pinned, &note.CreatedAt, &note.UpdatedAt); err != nil {
+		if err := rows.Scan(&note.ID, &note.UserID, &note.ConversationID, &note.Title, &note.Content, &note.Color, &note.Pinned, &note.CreatedAt, &note.UpdatedAt); err != nil {
+			return nil, err
+		}
+		notes = append(notes, note)
+	}
+	return notes, nil
+}
+
+func (r *NoteRepository) GetByConversation(conversationID int) ([]models.Note, error) {
+	rows, err := r.pool.Query(
+		context.Background(),
+		`SELECT id, user_id, conversation_id, title, content, color, pinned, created_at, updated_at 
+		 FROM notes WHERE conversation_id = $1 
+		 ORDER BY pinned DESC, updated_at DESC`,
+		conversationID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var notes []models.Note
+	for rows.Next() {
+		var note models.Note
+		if err := rows.Scan(&note.ID, &note.UserID, &note.ConversationID, &note.Title, &note.Content, &note.Color, &note.Pinned, &note.CreatedAt, &note.UpdatedAt); err != nil {
 			return nil, err
 		}
 		notes = append(notes, note)

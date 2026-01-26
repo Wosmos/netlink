@@ -431,3 +431,120 @@ func (r *ChatRepository) DeleteConversation(convID int) error {
 	_, err = r.pool.Exec(ctx, `DELETE FROM conversations WHERE id = $1`, convID)
 	return err
 }
+
+// Reaction methods
+
+func (r *ChatRepository) AddReaction(messageID, userID int, emoji string) error {
+	_, err := r.pool.Exec(
+		context.Background(),
+		`INSERT INTO message_reactions (message_id, user_id, emoji) 
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (message_id, user_id, emoji) DO NOTHING`,
+		messageID, userID, emoji,
+	)
+	return err
+}
+
+func (r *ChatRepository) RemoveReaction(messageID, userID int, emoji string) error {
+	_, err := r.pool.Exec(
+		context.Background(),
+		`DELETE FROM message_reactions 
+		 WHERE message_id = $1 AND user_id = $2 AND emoji = $3`,
+		messageID, userID, emoji,
+	)
+	return err
+}
+
+func (r *ChatRepository) GetMessageReactions(messageID int) (map[string][]int, error) {
+	rows, err := r.pool.Query(
+		context.Background(),
+		`SELECT emoji, user_id FROM message_reactions WHERE message_id = $1`,
+		messageID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	reactions := make(map[string][]int)
+	for rows.Next() {
+		var emoji string
+		var userID int
+		if err := rows.Scan(&emoji, &userID); err != nil {
+			return nil, err
+		}
+		reactions[emoji] = append(reactions[emoji], userID)
+	}
+	return reactions, nil
+}
+
+// Forward message
+func (r *ChatRepository) ForwardMessage(originalMsgID, targetConvID, senderID int) (*models.Message, error) {
+	ctx := context.Background()
+
+	// Get original message
+	var content string
+	var msgType models.MessageType
+	err := r.pool.QueryRow(ctx,
+		`SELECT content, type FROM messages WHERE id = $1`,
+		originalMsgID,
+	).Scan(&content, &msgType)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create forwarded message
+	var msg models.Message
+	err = r.pool.QueryRow(ctx,
+		`INSERT INTO messages (conversation_id, sender_id, type, content, forwarded_from) 
+		 VALUES ($1, $2, $3, $4, $5) 
+		 RETURNING id, conversation_id, sender_id, type, content, forwarded_from, created_at, updated_at`,
+		targetConvID, senderID, msgType, content, originalMsgID,
+	).Scan(&msg.ID, &msg.ConversationID, &msg.SenderID, &msg.Type, &msg.Content, &msg.ForwardedFrom, &msg.CreatedAt, &msg.UpdatedAt)
+
+	return &msg, err
+}
+
+// Delete message (soft delete)
+func (r *ChatRepository) DeleteMessage(messageID, userID int) error {
+	_, err := r.pool.Exec(
+		context.Background(),
+		`UPDATE messages SET deleted_at = NOW(), content = 'Message deleted' 
+		 WHERE id = $1 AND sender_id = $2 AND deleted_at IS NULL`,
+		messageID, userID,
+	)
+	return err
+}
+
+// Initialize reactions schema
+func (r *ChatRepository) InitReactionsSchema(ctx context.Context) error {
+	schema := `
+	-- Add forwarded_from column to messages
+	DO $$ 
+	BEGIN
+		IF NOT EXISTS (
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name='messages' AND column_name='forwarded_from'
+		) THEN
+			ALTER TABLE messages ADD COLUMN forwarded_from INTEGER REFERENCES messages(id) ON DELETE SET NULL;
+		END IF;
+	END $$;
+
+	-- Create message_reactions table
+	CREATE TABLE IF NOT EXISTS message_reactions (
+		id SERIAL PRIMARY KEY,
+		message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		emoji VARCHAR(10) NOT NULL,
+		created_at TIMESTAMPTZ DEFAULT NOW(),
+		UNIQUE(message_id, user_id, emoji)
+	);
+
+	-- Create indexes
+	CREATE INDEX IF NOT EXISTS idx_reactions_message ON message_reactions(message_id);
+	CREATE INDEX IF NOT EXISTS idx_reactions_user ON message_reactions(user_id);
+	CREATE INDEX IF NOT EXISTS idx_messages_forwarded ON messages(forwarded_from);
+	`
+	_, err := r.pool.Exec(ctx, schema)
+	return err
+}
