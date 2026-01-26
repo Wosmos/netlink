@@ -8,7 +8,7 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
-  register: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  register: (email: string, password: string, name?: string, phone?: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
 }
 
@@ -46,17 +46,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { success: false, error: res.error || 'Login failed' };
   }
 
-  async function register(email: string, password: string) {
+  async function register(email: string, password: string, name?: string, phone?: string) {
   try {
-    const res = await api.register(email, password);
-    console.log('Registration response:', res); // Add this line
+    const res = await api.register(email, password, name, phone);
+    console.log('Registration response:', res);
     
     if (res.success) {
       return { success: true };
     }
     return { success: false, error: res.error || 'Registration failed' };
   } catch (error) {
-    console.error('Registration error:', error); // Add this line
+    console.error('Registration error:', error);
     return { success: false, error: 'Network error' };
   }
 }

@@ -62,13 +62,13 @@ func (s *AuthService) ValidatePassword(password string) bool {
 	return len(password) >= 8 && len(password) <= 128
 }
 
-func (s *AuthService) Register(email, password string) error {
+func (s *AuthService) Register(email, password string, name, phone *string) error {
 	hash, err := s.HashPassword(password)
 	if err != nil {
 		return err
 	}
 	token := s.GenerateToken()
-	_, err = s.userRepo.Create(email, hash, token)
+	_, err = s.userRepo.Create(email, hash, token, name, phone)
 	if err == nil {
 		// Send verification email using Resend
 		if emailErr := s.emailService.SendVerificationEmail(email, token); emailErr != nil {

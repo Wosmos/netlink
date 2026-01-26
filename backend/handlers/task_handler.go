@@ -100,7 +100,25 @@ func (h *TaskHandler) APIList(w http.ResponseWriter, r *http.Request) {
 	if user == nil {
 		return
 	}
-	tasks, err := h.repo.GetAllByUser(user.ID)
+
+	// Check if conversation_id is provided
+	convIDStr := r.URL.Query().Get("conversation_id")
+	var tasks []models.Task
+	var err error
+
+	if convIDStr != "" {
+		convID, parseErr := strconv.Atoi(convIDStr)
+		if parseErr != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid conversation ID"})
+			return
+		}
+		tasks, err = h.repo.GetByConversation(convID, user.ID)
+	} else {
+		tasks, err = h.repo.GetAllByUser(user.ID)
+	}
+
 	if err != nil {
 		log.Printf("Error getting tasks: %v", err)
 		tasks = []models.Task{}
@@ -115,7 +133,8 @@ func (h *TaskHandler) APICreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Text string `json:"text"`
+		Text           string `json:"text"`
+		ConversationID *int   `json:"conversation_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Text == "" {
 		w.Header().Set("Content-Type", "application/json")
@@ -123,7 +142,21 @@ func (h *TaskHandler) APICreate(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Text required"})
 		return
 	}
-	h.repo.Create(user.ID, req.Text)
+
+	var err error
+	if req.ConversationID != nil && *req.ConversationID > 0 {
+		err = h.repo.CreateForConversation(user.ID, *req.ConversationID, req.Text)
+	} else {
+		err = h.repo.Create(user.ID, req.Text)
+	}
+
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to create task"})
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})

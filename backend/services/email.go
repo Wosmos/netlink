@@ -10,15 +10,35 @@ import (
 )
 
 type EmailService struct {
-	apiKey    string
-	fromEmail string
+	apiKey       string
+	fromEmail    string
+	gmailService *GmailSMTPService
+	useGmail     bool
 }
 
 func NewEmailService() *EmailService {
-	return &EmailService{
-		apiKey:    os.Getenv("RESEND_API_KEY"),
-		fromEmail: os.Getenv("FROM_EMAIL"),
+	resendKey := os.Getenv("RESEND_API_KEY")
+	gmailUser := os.Getenv("GMAIL_USERNAME")
+
+	// Use Gmail SMTP if configured, otherwise use Resend
+	useGmail := gmailUser != "" && os.Getenv("GMAIL_APP_PASSWORD") != ""
+
+	service := &EmailService{
+		apiKey:       resendKey,
+		fromEmail:    os.Getenv("FROM_EMAIL"),
+		gmailService: NewGmailSMTPService(),
+		useGmail:     useGmail,
 	}
+
+	if useGmail {
+		fmt.Printf("📧 Email service initialized with Gmail SMTP\n")
+	} else if resendKey != "" {
+		fmt.Printf("📧 Email service initialized with Resend API\n")
+	} else {
+		fmt.Printf("⚠️  No email service configured (development mode)\n")
+	}
+
+	return service
 }
 
 type ResendRequest struct {
@@ -30,16 +50,22 @@ type ResendRequest struct {
 
 func (s *EmailService) Send(to, subject, html string) error {
 	fmt.Printf("🔍 Email Service Debug:\n")
-	fmt.Printf("  API Key: %s\n", func() string {
-		if s.apiKey == "" {
-			return "EMPTY"
+	fmt.Printf("  Using: %s\n", func() string {
+		if s.useGmail {
+			return "Gmail SMTP"
 		}
-		return s.apiKey[:10] + "..."
+		return "Resend API"
 	}())
 	fmt.Printf("  From Email: %s\n", s.fromEmail)
 	fmt.Printf("  To: %s\n", to)
 	fmt.Printf("  Subject: %s\n", subject)
 
+	// Use Gmail SMTP if configured
+	if s.useGmail {
+		return s.gmailService.SendEmail(to, subject, html)
+	}
+
+	// Otherwise use Resend API
 	if s.apiKey == "" {
 		// Skip if no API key (development mode)
 		fmt.Printf("[EMAIL] To: %s, Subject: %s\n", to, subject)

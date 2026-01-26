@@ -18,17 +18,28 @@ type Message struct {
 	Type           MessageType `json:"type"`
 	Content        string      `json:"content"`
 	ReplyToID      *int        `json:"reply_to_id,omitempty"`
+	ForwardedFrom  *int        `json:"forwarded_from,omitempty"` // Original message ID if forwarded
 	CreatedAt      time.Time   `json:"created_at"`
 	UpdatedAt      time.Time   `json:"updated_at"`
 	DeletedAt      *time.Time  `json:"deleted_at,omitempty"`
 
 	// Populated
-	Sender  *User    `json:"sender,omitempty"`
-	ReplyTo *Message `json:"reply_to,omitempty"`
+	Sender    *User            `json:"sender,omitempty"`
+	ReplyTo   *Message         `json:"reply_to,omitempty"`
+	Reactions map[string][]int `json:"reactions,omitempty"` // emoji -> [user_ids]
+	ReadBy    []int            `json:"read_by,omitempty"`
 }
 
 type MessageRead struct {
 	MessageID int       `json:"message_id"`
 	UserID    int       `json:"user_id"`
 	ReadAt    time.Time `json:"read_at"`
+}
+
+type MessageReaction struct {
+	ID        int       `json:"id"`
+	MessageID int       `json:"message_id"`
+	UserID    int       `json:"user_id"`
+	Emoji     string    `json:"emoji"`
+	CreatedAt time.Time `json:"created_at"`
 }

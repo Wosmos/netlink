@@ -48,7 +48,22 @@ func (h *NoteHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	notes, err := h.repo.GetAllByUser(userID)
+	// Check if conversation_id is provided
+	convIDStr := r.URL.Query().Get("conversation_id")
+	var notes []models.Note
+	var err error
+
+	if convIDStr != "" {
+		convID, parseErr := strconv.Atoi(convIDStr)
+		if parseErr != nil {
+			http.Error(w, "Invalid conversation ID", http.StatusBadRequest)
+			return
+		}
+		notes, err = h.repo.GetByConversation(convID)
+	} else {
+		notes, err = h.repo.GetAllByUser(userID)
+	}
+
 	if err != nil {
 		http.Error(w, "Failed to get notes", http.StatusInternalServerError)
 		return
@@ -59,7 +74,7 @@ func (h *NoteHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(notes)
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": notes})
 }
 
 // POST /api/notes
@@ -69,7 +84,12 @@ func (h *NoteHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req CreateNoteRequest
+	var req struct {
+		Title          string `json:"title"`
+		Content        string `json:"content"`
+		Color          string `json:"color"`
+		ConversationID *int   `json:"conversation_id"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
@@ -79,7 +99,14 @@ func (h *NoteHandler) Create(w http.ResponseWriter, r *http.Request) {
 		req.Color = "#ffffff"
 	}
 
-	note, err := h.repo.Create(userID, req.Title, req.Content, req.Color)
+	var note *models.Note
+	var err error
+	if req.ConversationID != nil && *req.ConversationID > 0 {
+		note, err = h.repo.CreateForConversation(userID, *req.ConversationID, req.Title, req.Content, req.Color)
+	} else {
+		note, err = h.repo.Create(userID, req.Title, req.Content, req.Color)
+	}
+
 	if err != nil {
 		http.Error(w, "Failed to create note", http.StatusInternalServerError)
 		return
@@ -87,7 +114,7 @@ func (h *NoteHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(note)
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": note})
 }
 
 // GET /api/notes/{id}
@@ -139,8 +166,15 @@ func (h *NoteHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
+	// Get the updated note to return
+	note, err := h.repo.GetByID(id, userID)
+	if err != nil {
+		http.Error(w, "Failed to get updated note", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": note})
 }
 
 // DELETE /api/notes/{id}
@@ -162,8 +196,8 @@ func (h *NoteHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
 // POST /api/notes/{id}/pin
@@ -185,6 +219,6 @@ func (h *NoteHandler) TogglePin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "toggled"})
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }

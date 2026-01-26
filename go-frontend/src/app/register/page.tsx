@@ -9,6 +9,8 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
@@ -35,7 +37,7 @@ export default function RegisterPage() {
     const minTime = new Promise(resolve => setTimeout(resolve, 800));
 
     const [result] = await Promise.all([
-      register(email, password),
+      register(email, password, name, phone),
       minTime
     ]);
 
@@ -160,6 +162,44 @@ export default function RegisterPage() {
                   required
                   className="block w-full bg-[#050508] border border-cyan-900 text-cyan-50 px-4 py-2.5 focus:border-cyan-500/80 focus:ring-1 focus:ring-cyan-500/50 focus:outline-none transition-all font-mono text-sm placeholder-cyan-900/50"
                   placeholder="USER@NET.COM"
+                />
+                <div className="absolute top-0 right-0 w-2 h-2 border-t border-r border-cyan-500/30 group-focus-within/input:border-cyan-400 transition-colors"></div>
+                <div className="absolute bottom-0 left-0 w-2 h-2 border-b border-l border-cyan-500/30 group-focus-within/input:border-cyan-400 transition-colors"></div>
+              </div>
+            </div>
+
+            {/* Name Input (Optional) */}
+            <div className="group/input">
+              <label htmlFor="name" className="block text-[10px] font-mono text-cyan-400/70 mb-1 uppercase tracking-wider group-focus-within/input:text-cyan-400 transition-colors">
+                Display Name (Optional)
+              </label>
+              <div className="relative">
+                <input
+                  id="name"
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="block w-full bg-[#050508] border border-cyan-900 text-cyan-50 px-4 py-2.5 focus:border-cyan-500/80 focus:ring-1 focus:ring-cyan-500/50 focus:outline-none transition-all font-mono text-sm placeholder-cyan-900/50"
+                  placeholder="JOHN DOE"
+                />
+                <div className="absolute top-0 right-0 w-2 h-2 border-t border-r border-cyan-500/30 group-focus-within/input:border-cyan-400 transition-colors"></div>
+                <div className="absolute bottom-0 left-0 w-2 h-2 border-b border-l border-cyan-500/30 group-focus-within/input:border-cyan-400 transition-colors"></div>
+              </div>
+            </div>
+
+            {/* Phone Input (Optional) */}
+            <div className="group/input">
+              <label htmlFor="phone" className="block text-[10px] font-mono text-cyan-400/70 mb-1 uppercase tracking-wider group-focus-within/input:text-cyan-400 transition-colors">
+                Contact Number (Optional)
+              </label>
+              <div className="relative">
+                <input
+                  id="phone"
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="block w-full bg-[#050508] border border-cyan-900 text-cyan-50 px-4 py-2.5 focus:border-cyan-500/80 focus:ring-1 focus:ring-cyan-500/50 focus:outline-none transition-all font-mono text-sm placeholder-cyan-900/50"
+                  placeholder="+1 234 567 8900"
                 />
                 <div className="absolute top-0 right-0 w-2 h-2 border-t border-r border-cyan-500/30 group-focus-within/input:border-cyan-400 transition-colors"></div>
                 <div className="absolute bottom-0 left-0 w-2 h-2 border-b border-l border-cyan-500/30 group-focus-within/input:border-cyan-400 transition-colors"></div>
