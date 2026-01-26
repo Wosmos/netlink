@@ -158,10 +158,15 @@ export const api = {
     }
   },
   
-  sendMessage: async (convId: number, content: string, type = 'text', reply_to_id?: number) => {
+  sendMessage: async (convId: number, content: string, type = 'text', reply_to_id?: number, voiceData?: {
+    voice_file_path: string;
+    voice_duration: number;
+    voice_waveform: number[];
+    voice_file_size: number;
+  }) => {
     const res = await request<Message>(`/api/conversations/messages?id=${convId}`, {
       method: 'POST',
-      body: JSON.stringify({ content, type, reply_to_id }),
+      body: JSON.stringify({ content, type, reply_to_id, ...voiceData }),
     });
     // Don't update cache here - WebSocket will handle it
     return res;
@@ -176,10 +181,7 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ content }),
     });
-    // Invalidate messages cache to force refresh
-    if (res.success) {
-      cache.invalidate(CACHE_KEYS.messages(convId));
-    }
+    // Don't invalidate cache - WebSocket will handle real-time updates
     return res;
   },
   
@@ -381,6 +383,11 @@ export interface Message {
   read_by: number[];
   created_at: string;
   updated_at?: string;
+  deleted_at?: string;
+  voice_file_path?: string;
+  voice_duration?: number;
+  voice_waveform?: number[];
+  voice_file_size?: number;
 }
 
 export interface Task {

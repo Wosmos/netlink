@@ -1,6 +1,6 @@
 import { Message } from './api';
 
-type EventType = 'message' | 'typing' | 'read' | 'online' | 'offline' | 'conversation';
+type EventType = 'message' | 'typing' | 'read' | 'online' | 'offline' | 'conversation' | 'message_edit' | 'message_delete';
 
 interface WSEvent {
   type: EventType;

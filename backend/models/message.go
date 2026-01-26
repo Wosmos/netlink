@@ -9,6 +9,7 @@ const (
 	MessageTypeImage  MessageType = "image"
 	MessageTypeFile   MessageType = "file"
 	MessageTypeSystem MessageType = "system"
+	MessageTypeVoice  MessageType = "voice"
 )
 
 type Message struct {
@@ -22,6 +23,12 @@ type Message struct {
 	CreatedAt      time.Time   `json:"created_at"`
 	UpdatedAt      time.Time   `json:"updated_at"`
 	DeletedAt      *time.Time  `json:"deleted_at,omitempty"`
+
+	// Voice message fields
+	VoiceFilePath string    `json:"voice_file_path,omitempty"`
+	VoiceDuration float64   `json:"voice_duration,omitempty"`
+	VoiceWaveform []float64 `json:"voice_waveform,omitempty"`
+	VoiceFileSize int64     `json:"voice_file_size,omitempty"`
 
 	// Populated
 	Sender    *User            `json:"sender,omitempty"`
