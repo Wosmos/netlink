@@ -362,16 +362,6 @@ func (r *ChatRepository) MarkAsRead(convID, userID int) error {
 	return err
 }
 
-func (r *ChatRepository) DeleteMessage(msgID, userID int) error {
-	_, err := r.pool.Exec(
-		context.Background(),
-		`UPDATE messages SET deleted_at = CURRENT_TIMESTAMP 
-		 WHERE id = $1 AND sender_id = $2`,
-		msgID, userID,
-	)
-	return err
-}
-
 func (r *ChatRepository) UpdateMessage(msgID, userID int, content string) (*models.Message, error) {
 	ctx := context.Background()
 	var msg models.Message
@@ -514,6 +504,17 @@ func (r *ChatRepository) DeleteMessage(messageID, userID int) error {
 		messageID, userID,
 	)
 	return err
+}
+
+// GetMessageConversationID gets the conversation ID for a message
+func (r *ChatRepository) GetMessageConversationID(messageID, userID int) (int, error) {
+	var convID int
+	err := r.pool.QueryRow(
+		context.Background(),
+		`SELECT conversation_id FROM messages WHERE id = $1 AND sender_id = $2`,
+		messageID, userID,
+	).Scan(&convID)
+	return convID, err
 }
 
 // Initialize reactions schema

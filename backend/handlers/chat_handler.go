@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"go-to-do/auth"
 	"go-to-do/models"
@@ -273,9 +274,13 @@ func (h *ChatHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 }
 
 type SendMessageRequest struct {
-	Content   string `json:"content"`
-	Type      string `json:"type"`
-	ReplyToID *int   `json:"reply_to_id"`
+	Content       string    `json:"content"`
+	Type          string    `json:"type"`
+	ReplyToID     *int      `json:"reply_to_id"`
+	VoiceFilePath string    `json:"voice_file_path"`
+	VoiceDuration float64   `json:"voice_duration"`
+	VoiceWaveform []float64 `json:"voice_waveform"`
+	VoiceFileSize int64     `json:"voice_file_size"`
 }
 
 // POST /api/conversations/{id}/messages
@@ -329,6 +334,14 @@ func (h *ChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to send message"})
 		return
+	}
+
+	// Add voice data if this is a voice message
+	if msgType == models.MessageTypeVoice && req.VoiceFilePath != "" {
+		msg.VoiceFilePath = req.VoiceFilePath
+		msg.VoiceDuration = req.VoiceDuration
+		msg.VoiceWaveform = req.VoiceWaveform
+		msg.VoiceFileSize = req.VoiceFileSize
 	}
 
 	// Get sender info
@@ -414,6 +427,17 @@ func (h *ChatHandler) EditMessage(w http.ResponseWriter, r *http.Request) {
 	// Get sender info
 	sender, _ := h.userRepo.GetByID(userID)
 	msg.Sender = sender
+
+	// Broadcast edit to conversation members
+	memberIDs, _ := h.repo.GetConversationMemberIDs(convID)
+	if len(memberIDs) > 0 {
+		payload, _ := json.Marshal(msg)
+		h.hub.BroadcastToUsers(memberIDs, &websocket.Event{
+			Type:           websocket.EventTypeMessageEdit,
+			ConversationID: convID,
+			Payload:        payload,
+		})
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": msg})
@@ -696,6 +720,15 @@ func (h *ChatHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get conversation ID before deleting (for broadcasting)
+	convID, err := h.repo.GetMessageConversationID(msgID, userID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Message not found"})
+		return
+	}
+
 	if err := h.repo.DeleteMessage(msgID, userID); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -703,7 +736,21 @@ func (h *ChatHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Broadcast deletion to conversation members
+	// Broadcast deletion to conversation members
+	memberIDs, _ := h.repo.GetConversationMemberIDs(convID)
+	if len(memberIDs) > 0 {
+		payload, _ := json.Marshal(map[string]interface{}{
+			"id":              msgID,
+			"conversation_id": convID,
+			"deleted_at":      time.Now(),
+			"content":         "Message deleted",
+		})
+		h.hub.BroadcastToUsers(memberIDs, &websocket.Event{
+			Type:           websocket.EventTypeMessageDelete,
+			ConversationID: convID,
+			Payload:        payload,
+		})
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})

@@ -38,6 +38,7 @@ const (
 	EventTypeUserJoined    EventType = "user_joined"
 	EventTypeUserLeft      EventType = "user_left"
 	EventTypeMessageDelete EventType = "message_delete"
+	EventTypeMessageEdit   EventType = "message_edit"
 )
 
 // Event is the WebSocket message format

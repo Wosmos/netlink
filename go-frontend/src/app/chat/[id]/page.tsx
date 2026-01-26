@@ -6,6 +6,11 @@ import { api, Message, Conversation } from '@/lib/api';
 import { wsClient } from '@/lib/websocket';
 import { useAuth } from '@/context/AuthContext';
 import { cache, CACHE_KEYS } from '@/lib/cache';
+import dynamic from 'next/dynamic';
+
+// Lazy load voice components
+const VoiceRecorder = dynamic(() => import('@/components/VoiceRecorder'), { ssr: false });
+const VoicePlayer = dynamic(() => import('@/components/VoicePlayer'), { ssr: false });
 
 export default function ConversationPage() {
   const { id } = useParams();
@@ -25,6 +30,7 @@ export default function ConversationPage() {
   const [editingMsg, setEditingMsg] = useState<Message | null>(null);
   const [editContent, setEditContent] = useState('');
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; msg: Message } | null>(null);
+  const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
   
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -140,6 +146,24 @@ export default function ConversationPage() {
         }
       }
     });
+    
+    const unsubMessageEdit = wsClient.on('message_edit', (event, data) => {
+      if (event.conversation_id === convId && data) {
+        setMessages(prev => prev.map(m => m.id === data.id ? data : m));
+      }
+    });
+    
+    const unsubMessageDelete = wsClient.on('message_delete', (event, data) => {
+      if (event.conversation_id === convId && data) {
+        const deleteData = data as unknown as { id: number; deleted_at: string; content: string };
+        setMessages(prev => prev.map(m => 
+          m.id === deleteData.id 
+            ? { ...m, content: 'Message deleted', deleted_at: deleteData.deleted_at } 
+            : m
+        ));
+      }
+    });
+    
     const unsubTyping = wsClient.on('typing', (event) => {
       if (event.conversation_id === convId && event.user_id && event.user_id !== user?.id) {
         const uid = event.user_id;
@@ -153,7 +177,14 @@ export default function ConversationPage() {
     const unsubOffline = wsClient.on('offline', (event) => {
       if (event.user_id) setOnlineUsers(prev => prev.filter(i => i !== event.user_id));
     });
-    return () => { unsubMessage(); unsubTyping(); unsubOnline(); unsubOffline(); };
+    return () => { 
+      unsubMessage(); 
+      unsubMessageEdit(); 
+      unsubMessageDelete(); 
+      unsubTyping(); 
+      unsubOnline(); 
+      unsubOffline(); 
+    };
   }, [convId, user?.id]);
 
   const handleScroll = () => {
@@ -210,6 +241,62 @@ export default function ConversationPage() {
     }
   }
 
+  async function handleVoiceSend(audioBlob: Blob, duration: number, waveform: number[]) {
+    try {
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+      
+      // Upload voice file
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'voice.webm');
+      formData.append('duration', duration.toString());
+      formData.append('waveform', JSON.stringify(waveform));
+
+      console.log('Uploading voice message...', { duration, waveformLength: waveform.length, blobSize: audioBlob.size });
+
+      const uploadRes = await fetch(`${API_URL}/api/voice/upload`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      });
+
+      if (!uploadRes.ok) {
+        const errorText = await uploadRes.text();
+        console.error('Upload failed:', uploadRes.status, errorText);
+        alert(`Failed to upload voice message: ${uploadRes.status}`);
+        setShowVoiceRecorder(false);
+        return;
+      }
+
+      const uploadData = await uploadRes.json();
+      console.log('Upload successful:', uploadData);
+
+      if (!uploadData.success) {
+        alert('Failed to upload voice message');
+        setShowVoiceRecorder(false);
+        return;
+      }
+
+      // Send message with voice data
+      const res = await api.sendMessage(convId, 'Voice message', 'voice', undefined, {
+        voice_file_path: uploadData.data.file_path,
+        voice_duration: uploadData.data.duration,
+        voice_waveform: uploadData.data.waveform,
+        voice_file_size: uploadData.data.file_size,
+      });
+
+      if (res.success) {
+        console.log('Voice message sent successfully');
+        setShowVoiceRecorder(false);
+      } else {
+        alert('Failed to send voice message');
+      }
+    } catch (error) {
+      console.error('Error sending voice message:', error);
+      alert(`Failed to send voice message: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setShowVoiceRecorder(false);
+    }
+  }
+
   function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {
     setNewMessage(e.target.value);
     const now = Date.now();
@@ -237,10 +324,21 @@ export default function ConversationPage() {
     if (!editingMsg || !editContent.trim()) return;
     const res = await api.editMessage(convId, editingMsg.id, editContent);
     if (res.success && res.data) {
+      // WebSocket will handle the update, but update locally for instant feedback
       setMessages(prev => prev.map(m => m.id === editingMsg.id ? res.data! : m));
     }
     setEditingMsg(null);
     setEditContent('');
+  }
+
+  async function handleDelete(msg: Message) {
+    if (!confirm('Delete this message?')) return;
+    const res = await api.deleteMessage(msg.id);
+    if (res.success) {
+      // WebSocket will handle the update, but update locally for instant feedback
+      setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, content: 'Message deleted', deleted_at: new Date().toISOString() } : m));
+    }
+    setContextMenu(null);
   }
 
   function handleContextMenu(e: React.MouseEvent, msg: Message) {
@@ -377,27 +475,50 @@ export default function ConversationPage() {
                 const isOwn = msg.sender_id === user?.id;
                 const isEdited = msg.updated_at && msg.created_at !== msg.updated_at;
                 const isBeingEdited = editingMsg?.id === msg.id;
+                const isDeleted = !!msg.deleted_at;
                 return (
                   <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} msg-enter`} onContextMenu={(e) => handleContextMenu(e, msg)}>
                     <div className={`max-w-[90%] sm:max-w-[85%] md:max-w-[70%] group flex flex-col ${isOwn ? 'items-end' : 'items-start'}`}>
                       {!isOwn && <span className="text-[8px] sm:text-[9px] font-mono text-cyan-600/70 mb-1 ml-1 uppercase">{formatName(msg.sender?.name, msg.sender?.email)}</span>}
-                      <div className={`relative px-3 sm:px-5 py-2 sm:py-3 text-xs sm:text-sm md:text-base backdrop-blur-sm transition-all duration-200 ${isOwn ? 'bg-cyan-950/60 border border-cyan-500/40 text-cyan-50 scifi-clip-sender' : 'bg-[#15151a] border-l-2 border-l-orange-500/50 text-gray-300 scifi-clip-receiver'}`}>
+                      <div className={`relative px-3 sm:px-5 py-2 sm:py-3 text-xs sm:text-sm md:text-base backdrop-blur-sm transition-all duration-200 ${isDeleted ? 'opacity-50' : ''} ${isOwn ? 'bg-cyan-950/60 border border-cyan-500/40 text-cyan-50 scifi-clip-sender' : 'bg-[#15151a] border-l-2 border-l-orange-500/50 text-gray-300 scifi-clip-receiver'}`}>
                         {isBeingEdited ? (
                           <div className="flex items-center gap-2">
                             <input ref={editInputRef} type="text" value={editContent} onChange={(e) => setEditContent(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleEditSave(); if (e.key === 'Escape') { setEditingMsg(null); setEditContent(''); } }} className="bg-transparent border-b border-cyan-500 outline-none text-cyan-50 min-w-[100px] sm:min-w-[150px]" />
                             <button onClick={handleEditSave} className="text-emerald-400 hover:text-emerald-300"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg></button>
                             <button onClick={() => { setEditingMsg(null); setEditContent(''); }} className="text-red-400 hover:text-red-300"><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
                           </div>
-                        ) : <p className="whitespace-pre-wrap leading-relaxed break-words">{msg.content}</p>}
+                        ) : msg.type === 'voice' && msg.voice_file_path ? (
+                          <>
+                            {console.log('Rendering voice message:', { 
+                              id: msg.id, 
+                              path: msg.voice_file_path, 
+                              duration: msg.voice_duration,
+                              waveformLength: msg.voice_waveform?.length 
+                            })}
+                            <VoicePlayer
+                              audioUrl={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/api/voice/download?path=${encodeURIComponent(msg.voice_file_path)}`}
+                              duration={msg.voice_duration || 0}
+                              waveform={msg.voice_waveform}
+                              senderName={formatName(msg.sender?.name, msg.sender?.email)}
+                              isOwn={isOwn}
+                            />
+                          </>
+                        ) : (
+                          <p className={`whitespace-pre-wrap leading-relaxed break-words ${isDeleted ? 'italic text-gray-500' : ''}`}>{msg.content}</p>
+                        )}
                         {copiedId === msg.id && <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-[10px] text-emerald-400 font-mono bg-[#0a0a0f] px-2 py-0.5 border border-emerald-500/30 rounded">COPIED</span>}
                       </div>
                       <div className="flex items-center gap-2 mt-1 px-1">
                         <span className="text-[8px] sm:text-[9px] font-mono text-gray-500 uppercase">{formatTime(msg.created_at)}</span>
                         {isEdited && <span className="text-[7px] sm:text-[8px] font-mono text-yellow-500/70 italic tracking-wider">[MODIFIED]</span>}
-                        <div className="hidden sm:flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => handleCopy(msg)} className="p-1 text-gray-500 hover:text-cyan-400" title="Copy"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button>
-                          {isOwn && <button onClick={() => startEdit(msg)} className="p-1 text-gray-500 hover:text-cyan-400" title="Edit"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>}
-                        </div>
+                        {isDeleted && <span className="text-[7px] sm:text-[8px] font-mono text-red-500/70 italic tracking-wider">[DELETED]</span>}
+                        {!isDeleted && (
+                          <div className="hidden sm:flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => handleCopy(msg)} className="p-1 text-gray-500 hover:text-cyan-400" title="Copy"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button>
+                            {isOwn && <button onClick={() => startEdit(msg)} className="p-1 text-gray-500 hover:text-cyan-400" title="Edit"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>}
+                            {isOwn && <button onClick={() => handleDelete(msg)} className="p-1 text-gray-500 hover:text-red-400" title="Delete"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -415,10 +536,15 @@ export default function ConversationPage() {
           <button onClick={() => handleCopy(contextMenu.msg)} className="w-full text-left px-4 py-2 text-xs text-cyan-300 hover:bg-cyan-900/30 font-mono flex items-center gap-2">
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>Copy
           </button>
-          {contextMenu.msg.sender_id === user?.id && (
-            <button onClick={() => startEdit(contextMenu.msg)} className="w-full text-left px-4 py-2 text-xs text-cyan-300 hover:bg-cyan-900/30 font-mono flex items-center gap-2">
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>Edit
-            </button>
+          {contextMenu.msg.sender_id === user?.id && !contextMenu.msg.deleted_at && (
+            <>
+              <button onClick={() => startEdit(contextMenu.msg)} className="w-full text-left px-4 py-2 text-xs text-cyan-300 hover:bg-cyan-900/30 font-mono flex items-center gap-2">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>Edit
+              </button>
+              <button onClick={() => handleDelete(contextMenu.msg)} className="w-full text-left px-4 py-2 text-xs text-red-400 hover:bg-red-900/30 font-mono flex items-center gap-2">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>Delete
+              </button>
+            </>
           )}
         </div>
       )}
@@ -450,6 +576,19 @@ export default function ConversationPage() {
       {/* INPUT AREA */}
       <div className="p-3 sm:p-4 md:p-6 bg-[#0a0a0f] border-t border-cyan-900/30 relative z-20 shadow-[0_-5px_20px_rgba(0,0,0,0.5)]">
         <form onSubmit={handleSend} className="max-w-4xl mx-auto flex gap-2 sm:gap-3 items-stretch">
+          {/* Voice Button */}
+          <button
+            type="button"
+            onClick={() => setShowVoiceRecorder(true)}
+            className="px-3 sm:px-4 py-2.5 sm:py-3 bg-cyan-900/30 border border-cyan-500/50 text-cyan-400 hover:bg-cyan-500 hover:text-black hover:shadow-[0_0_20px_rgba(6,182,212,0.4)] transition-all duration-300"
+            style={{ clipPath: 'polygon(10px 0, 100% 0, 100% 100%, 0 100%, 0 10px)' }}
+            title="Voice message"
+          >
+            <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+            </svg>
+          </button>
+
           <div className="flex-1 relative">
             <input type="text" value={newMessage} onChange={handleInputChange} placeholder="TRANSMIT DATA..." className="w-full h-full bg-[#050508] text-cyan-100 border border-cyan-800/50 rounded-sm px-3 sm:px-4 py-2.5 sm:py-3 focus:outline-none focus:border-cyan-500 focus:shadow-[0_0_15px_rgba(6,182,212,0.1)] font-mono text-xs sm:text-sm placeholder-cyan-900 transition-all" />
           </div>
@@ -459,6 +598,14 @@ export default function ConversationPage() {
           </button>
         </form>
       </div>
+
+      {/* Voice Recorder Modal */}
+      {showVoiceRecorder && (
+        <VoiceRecorder
+          onSend={handleVoiceSend}
+          onCancel={() => setShowVoiceRecorder(false)}
+        />
+      )}
     </div>
   );
 }

@@ -95,6 +95,7 @@ func main() {
 	taskHandler := handlers.NewTaskHandler(taskRepo, authService)
 	noteHandler := handlers.NewNoteHandler(noteRepo, authService)
 	chatHandler := handlers.NewChatHandler(chatRepo, userRepo, authService, hub)
+	voiceHandler := handlers.NewVoiceHandler(chatRepo, userRepo, authService)
 
 	// CORS middleware for API routes
 	corsMiddleware := func(next http.HandlerFunc) http.HandlerFunc {
@@ -221,6 +222,11 @@ func main() {
 	http.HandleFunc("/api/messages/forward", corsMiddleware(chatHandler.ForwardMessage))
 	http.HandleFunc("/api/messages/delete", corsMiddleware(chatHandler.DeleteMessage))
 	http.HandleFunc("/api/conversations/delete", corsMiddleware(chatHandler.DeleteConversation))
+
+	// Voice messages API
+	http.HandleFunc("/api/voice/upload", corsMiddleware(voiceHandler.UploadVoice))
+	http.HandleFunc("/api/voice/download", corsMiddleware(voiceHandler.DownloadVoice))
+	http.HandleFunc("/api/voice/delete", corsMiddleware(voiceHandler.DeleteVoice))
 
 	// Users API
 	http.HandleFunc("/api/users/online", corsMiddleware(chatHandler.GetOnlineUsers))
