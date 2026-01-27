@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { api, Message, Conversation } from '@/lib/api';
+import { api, Message, Conversation, ReactionSummary } from '@/lib/api';
 import { wsClient } from '@/lib/websocket';
 import { useAuth } from '@/context/AuthContext';
 import { cache, CACHE_KEYS } from '@/lib/cache';
@@ -177,13 +177,26 @@ export default function ConversationPage() {
     const unsubOffline = wsClient.on('offline', (event) => {
       if (event.user_id) setOnlineUsers(prev => prev.filter(i => i !== event.user_id));
     });
+    
+    const unsubReaction = wsClient.on('reaction', (event, data) => {
+      if (event.conversation_id === convId && data) {
+        const reactionData = data as { message_id: number; reactions: ReactionSummary[] };
+        setMessages(prev => prev.map(m => 
+          m.id === reactionData.message_id 
+            ? { ...m, reactions: reactionData.reactions } 
+            : m
+        ));
+      }
+    });
+    
     return () => { 
       unsubMessage(); 
       unsubMessageEdit(); 
       unsubMessageDelete(); 
       unsubTyping(); 
       unsubOnline(); 
-      unsubOffline(); 
+      unsubOffline();
+      unsubReaction();
     };
   }, [convId, user?.id]);
 
@@ -339,6 +352,16 @@ export default function ConversationPage() {
       setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, content: 'Message deleted', deleted_at: new Date().toISOString() } : m));
     }
     setContextMenu(null);
+  }
+
+  async function handleQuickReact(msg: Message, emoji: string) {
+    const res = await api.reactToMessage(msg.id, emoji);
+    if (res.success && res.data) {
+      // Update message reactions locally
+      setMessages(prev => prev.map(m => 
+        m.id === msg.id ? { ...m, reactions: res.data.reactions } : m
+      ));
+    }
   }
 
   function handleContextMenu(e: React.MouseEvent, msg: Message) {
@@ -506,6 +529,35 @@ export default function ConversationPage() {
                         ) : (
                           <p className={`whitespace-pre-wrap leading-relaxed break-words ${isDeleted ? 'italic text-gray-500' : ''}`}>{msg.content}</p>
                         )}
+                        
+                        {/* Reactions */}
+                        {msg.reactions && msg.reactions.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {msg.reactions.map((reaction) => {
+                              const hasReacted = reaction.user_ids.includes(user?.id || 0);
+                              return (
+                                <button
+                                  key={reaction.emoji}
+                                  onClick={() => api.reactToMessage(msg.id, reaction.emoji)}
+                                  className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs transition-all ${
+                                    hasReacted 
+                                      ? 'bg-cyan-500/30 border border-cyan-500/50 text-cyan-300' 
+                                      : 'bg-gray-800/50 border border-gray-700/50 text-gray-400 hover:bg-gray-700/50'
+                                  }`}
+                                  title={`Reacted by ${reaction.user_ids.length} user(s)`}
+                                >
+                                  {reaction.is_custom && reaction.custom_url ? (
+                                    <img src={reaction.custom_url} alt={reaction.emoji} className="w-4 h-4" />
+                                  ) : (
+                                    <span>{reaction.emoji}</span>
+                                  )}
+                                  <span className="text-[10px]">{reaction.count}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                        
                         {copiedId === msg.id && <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-[10px] text-emerald-400 font-mono bg-[#0a0a0f] px-2 py-0.5 border border-emerald-500/30 rounded">COPIED</span>}
                       </div>
                       <div className="flex items-center gap-2 mt-1 px-1">
@@ -514,6 +566,7 @@ export default function ConversationPage() {
                         {isDeleted && <span className="text-[7px] sm:text-[8px] font-mono text-red-500/70 italic tracking-wider">[DELETED]</span>}
                         {!isDeleted && (
                           <div className="hidden sm:flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onClick={() => handleQuickReact(msg, '👍')} className="p-1 text-gray-500 hover:text-cyan-400" title="React">😊</button>
                             <button onClick={() => handleCopy(msg)} className="p-1 text-gray-500 hover:text-cyan-400" title="Copy"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg></button>
                             {isOwn && <button onClick={() => startEdit(msg)} className="p-1 text-gray-500 hover:text-cyan-400" title="Edit"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg></button>}
                             {isOwn && <button onClick={() => handleDelete(msg)} className="p-1 text-gray-500 hover:text-red-400" title="Delete"><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>}
@@ -533,6 +586,17 @@ export default function ConversationPage() {
       {/* Context Menu */}
       {contextMenu && (
         <div className="fixed z-50 bg-[#0c0c14] border border-cyan-500/30 rounded shadow-2xl py-1 min-w-[120px]" style={{ top: contextMenu.y, left: Math.min(contextMenu.x, window.innerWidth - 140) }}>
+          <div className="px-2 py-1 flex gap-1 border-b border-cyan-900/30">
+            {['👍', '❤️', '😂', '😮', '😢', '🎉'].map(emoji => (
+              <button
+                key={emoji}
+                onClick={() => { handleQuickReact(contextMenu.msg, emoji); setContextMenu(null); }}
+                className="text-lg hover:scale-125 transition-transform"
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
           <button onClick={() => handleCopy(contextMenu.msg)} className="w-full text-left px-4 py-2 text-xs text-cyan-300 hover:bg-cyan-900/30 font-mono flex items-center gap-2">
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>Copy
           </button>

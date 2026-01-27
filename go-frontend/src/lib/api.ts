@@ -186,16 +186,22 @@ export const api = {
   },
   
   // Message reactions
-  reactToMessage: async (msgId: number, emoji: string) => {
+  reactToMessage: async (msgId: number, emoji: string, isCustom = false, customUrl = '', toggle = true) => {
     return request(`/api/messages/react?msg_id=${msgId}`, {
       method: 'POST',
-      body: JSON.stringify({ emoji }),
+      body: JSON.stringify({ emoji, is_custom: isCustom, custom_url: customUrl, toggle }),
     });
   },
   
   removeReaction: async (msgId: number, emoji: string) => {
     return request(`/api/messages/react?msg_id=${msgId}&emoji=${encodeURIComponent(emoji)}`, {
       method: 'DELETE',
+    });
+  },
+  
+  getMessageReactions: async (msgId: number) => {
+    return request(`/api/messages/reactions?msg_id=${msgId}`, {
+      method: 'GET',
     });
   },
   
@@ -371,6 +377,14 @@ export interface ConversationMember {
   joined_at: string;
 }
 
+export interface ReactionSummary {
+  emoji: string;
+  is_custom: boolean;
+  custom_url?: string;
+  count: number;
+  user_ids: number[];
+}
+
 export interface Message {
   id: number;
   conversation_id: number;
@@ -381,6 +395,7 @@ export interface Message {
   reply_to_id?: number;
   reply_to?: Message;
   read_by: number[];
+  reactions?: ReactionSummary[];
   created_at: string;
   updated_at?: string;
   deleted_at?: string;

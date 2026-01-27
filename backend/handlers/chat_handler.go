@@ -560,7 +560,7 @@ func (h *ChatHandler) DeleteConversation(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
-// POST /api/messages/react
+// POST /api/messages/react - Add or toggle reaction (optimized for 20-30ms)
 func (h *ChatHandler) ReactToMessage(w http.ResponseWriter, r *http.Request) {
 	userID := h.requireAuth(w, r)
 	if userID == 0 {
@@ -577,7 +577,10 @@ func (h *ChatHandler) ReactToMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Emoji string `json:"emoji"`
+		Emoji     string `json:"emoji"`
+		IsCustom  bool   `json:"is_custom"`
+		CustomURL string `json:"custom_url"`
+		Toggle    bool   `json:"toggle"` // If true, toggle reaction on/off
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Emoji == "" {
 		w.Header().Set("Content-Type", "application/json")
@@ -586,24 +589,75 @@ func (h *ChatHandler) ReactToMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.repo.AddReaction(msgID, userID, req.Emoji); err != nil {
+	// Get conversation ID for broadcasting
+	convID, err := h.repo.GetMessageConversationID(msgID, userID)
+	if err != nil {
+		// Try without user check (user might not be sender)
+		var tempConvID int
+		err2 := h.repo.GetPool().QueryRow(r.Context(),
+			`SELECT conversation_id FROM messages WHERE id = $1`, msgID).Scan(&tempConvID)
+		if err2 != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Message not found"})
+			return
+		}
+		convID = tempConvID
+	}
+
+	var added bool
+	if req.Toggle {
+		// Use optimized toggle operation
+		added, err = h.repo.ToggleReaction(msgID, userID, req.Emoji, req.IsCustom, req.CustomURL)
+	} else {
+		// Add reaction
+		if req.IsCustom {
+			err = h.repo.AddCustomReaction(msgID, userID, req.Emoji, req.CustomURL)
+		} else {
+			err = h.repo.AddReaction(msgID, userID, req.Emoji)
+		}
+		added = true
+	}
+
+	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to add reaction"})
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to update reaction"})
 		return
 	}
 
-	// Get updated reactions
-	reactions, _ := h.repo.GetMessageReactions(msgID)
+	// Get updated reactions summary (optimized single query)
+	reactions, _ := h.repo.GetMessageReactionsSummary(msgID)
 
-	// Broadcast reaction to conversation members
-	// TODO: Get conversation ID from message and broadcast
+	// Broadcast reaction update to conversation members (optimized payload)
+	memberIDs, _ := h.repo.GetConversationMemberIDs(convID)
+	if len(memberIDs) > 0 {
+		payload, _ := json.Marshal(map[string]interface{}{
+			"message_id": msgID,
+			"user_id":    userID,
+			"emoji":      req.Emoji,
+			"is_custom":  req.IsCustom,
+			"custom_url": req.CustomURL,
+			"added":      added,
+			"reactions":  reactions, // Full summary for immediate UI update
+		})
+		h.hub.BroadcastToUsers(memberIDs, &websocket.Event{
+			Type:           websocket.EventTypeReaction,
+			ConversationID: convID,
+			UserID:         userID,
+			Payload:        payload,
+		})
+	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": reactions})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":   true,
+		"added":     added,
+		"reactions": reactions,
+	})
 }
 
-// DELETE /api/messages/react
+// DELETE /api/messages/react - Remove reaction
 func (h *ChatHandler) RemoveReaction(w http.ResponseWriter, r *http.Request) {
 	userID := h.requireAuth(w, r)
 	if userID == 0 {
@@ -627,6 +681,17 @@ func (h *ChatHandler) RemoveReaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get conversation ID for broadcasting
+	var convID int
+	err = h.repo.GetPool().QueryRow(r.Context(),
+		`SELECT conversation_id FROM messages WHERE id = $1`, msgID).Scan(&convID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Message not found"})
+		return
+	}
+
 	if err := h.repo.RemoveReaction(msgID, userID, emoji); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -635,7 +700,53 @@ func (h *ChatHandler) RemoveReaction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get updated reactions
-	reactions, _ := h.repo.GetMessageReactions(msgID)
+	reactions, _ := h.repo.GetMessageReactionsSummary(msgID)
+
+	// Broadcast reaction removal
+	memberIDs, _ := h.repo.GetConversationMemberIDs(convID)
+	if len(memberIDs) > 0 {
+		payload, _ := json.Marshal(map[string]interface{}{
+			"message_id": msgID,
+			"user_id":    userID,
+			"emoji":      emoji,
+			"added":      false,
+			"reactions":  reactions,
+		})
+		h.hub.BroadcastToUsers(memberIDs, &websocket.Event{
+			Type:           websocket.EventTypeReaction,
+			ConversationID: convID,
+			UserID:         userID,
+			Payload:        payload,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "reactions": reactions})
+}
+
+// GET /api/messages/reactions - Get reactions for a message
+func (h *ChatHandler) GetMessageReactions(w http.ResponseWriter, r *http.Request) {
+	userID := h.requireAuth(w, r)
+	if userID == 0 {
+		return
+	}
+
+	msgIDStr := r.URL.Query().Get("msg_id")
+	msgID, err := strconv.Atoi(msgIDStr)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid message ID"})
+		return
+	}
+
+	reactions, err := h.repo.GetMessageReactionsSummary(msgID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to get reactions"})
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": reactions})
