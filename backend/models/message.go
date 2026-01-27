@@ -48,5 +48,16 @@ type MessageReaction struct {
 	MessageID int       `json:"message_id"`
 	UserID    int       `json:"user_id"`
 	Emoji     string    `json:"emoji"`
+	IsCustom  bool      `json:"is_custom"`            // true for custom reactions, false for system emojis
+	CustomURL string    `json:"custom_url,omitempty"` // URL for custom reaction image
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// ReactionSummary provides aggregated reaction data for efficient transmission
+type ReactionSummary struct {
+	Emoji     string `json:"emoji"`
+	IsCustom  bool   `json:"is_custom"`
+	CustomURL string `json:"custom_url,omitempty"`
+	Count     int    `json:"count"`
+	UserIDs   []int  `json:"user_ids"`
 }

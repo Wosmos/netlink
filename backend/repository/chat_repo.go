@@ -13,6 +13,11 @@ type ChatRepository struct {
 	pool *pgxpool.Pool
 }
 
+// GetPool returns the database pool (for internal use by handlers)
+func (r *ChatRepository) GetPool() *pgxpool.Pool {
+	return r.pool
+}
+
 func NewChatRepository(pool *pgxpool.Pool) *ChatRepository {
 	return &ChatRepository{pool: pool}
 }
@@ -422,22 +427,36 @@ func (r *ChatRepository) DeleteConversation(convID int) error {
 	return err
 }
 
-// Reaction methods
+// Reaction methods - Optimized for 20-30ms latency
 
+// AddReaction adds a reaction to a message (supports both system emojis and custom reactions)
 func (r *ChatRepository) AddReaction(messageID, userID int, emoji string) error {
-	_, err := r.pool.Exec(
-		context.Background(),
-		`INSERT INTO message_reactions (message_id, user_id, emoji) 
-		 VALUES ($1, $2, $3)
+	ctx := context.Background()
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO message_reactions (message_id, user_id, emoji, is_custom, custom_url) 
+		 VALUES ($1, $2, $3, FALSE, NULL)
 		 ON CONFLICT (message_id, user_id, emoji) DO NOTHING`,
 		messageID, userID, emoji,
 	)
 	return err
 }
 
+// AddCustomReaction adds a custom reaction to a message
+func (r *ChatRepository) AddCustomReaction(messageID, userID int, emoji, customURL string) error {
+	ctx := context.Background()
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO message_reactions (message_id, user_id, emoji, is_custom, custom_url) 
+		 VALUES ($1, $2, $3, TRUE, $4)
+		 ON CONFLICT (message_id, user_id, emoji) DO NOTHING`,
+		messageID, userID, emoji, customURL,
+	)
+	return err
+}
+
+// RemoveReaction removes a reaction from a message
 func (r *ChatRepository) RemoveReaction(messageID, userID int, emoji string) error {
-	_, err := r.pool.Exec(
-		context.Background(),
+	ctx := context.Background()
+	_, err := r.pool.Exec(ctx,
 		`DELETE FROM message_reactions 
 		 WHERE message_id = $1 AND user_id = $2 AND emoji = $3`,
 		messageID, userID, emoji,
@@ -445,9 +464,10 @@ func (r *ChatRepository) RemoveReaction(messageID, userID int, emoji string) err
 	return err
 }
 
+// GetMessageReactions returns reactions in optimized format (legacy map format)
 func (r *ChatRepository) GetMessageReactions(messageID int) (map[string][]int, error) {
-	rows, err := r.pool.Query(
-		context.Background(),
+	ctx := context.Background()
+	rows, err := r.pool.Query(ctx,
 		`SELECT emoji, user_id FROM message_reactions WHERE message_id = $1`,
 		messageID,
 	)
@@ -466,6 +486,113 @@ func (r *ChatRepository) GetMessageReactions(messageID int) (map[string][]int, e
 		reactions[emoji] = append(reactions[emoji], userID)
 	}
 	return reactions, nil
+}
+
+// GetMessageReactionsSummary returns aggregated reaction data for efficient transmission
+// This is optimized for minimal payload size and fast queries
+func (r *ChatRepository) GetMessageReactionsSummary(messageID int) ([]models.ReactionSummary, error) {
+	ctx := context.Background()
+
+	// Use a single optimized query with aggregation
+	rows, err := r.pool.Query(ctx,
+		`SELECT 
+			emoji, 
+			is_custom, 
+			COALESCE(custom_url, '') as custom_url,
+			COUNT(*) as count,
+			ARRAY_AGG(user_id ORDER BY created_at) as user_ids
+		FROM message_reactions 
+		WHERE message_id = $1
+		GROUP BY emoji, is_custom, custom_url
+		ORDER BY MIN(created_at)`,
+		messageID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var summaries []models.ReactionSummary
+	for rows.Next() {
+		var summary models.ReactionSummary
+		if err := rows.Scan(&summary.Emoji, &summary.IsCustom, &summary.CustomURL, &summary.Count, &summary.UserIDs); err != nil {
+			return nil, err
+		}
+		summaries = append(summaries, summary)
+	}
+	return summaries, nil
+}
+
+// GetBatchMessageReactions gets reactions for multiple messages in one query
+// This is extremely efficient for loading conversation history
+func (r *ChatRepository) GetBatchMessageReactions(messageIDs []int) (map[int][]models.ReactionSummary, error) {
+	if len(messageIDs) == 0 {
+		return make(map[int][]models.ReactionSummary), nil
+	}
+
+	ctx := context.Background()
+	rows, err := r.pool.Query(ctx,
+		`SELECT 
+			message_id,
+			emoji, 
+			is_custom, 
+			COALESCE(custom_url, '') as custom_url,
+			COUNT(*) as count,
+			ARRAY_AGG(user_id ORDER BY created_at) as user_ids
+		FROM message_reactions 
+		WHERE message_id = ANY($1)
+		GROUP BY message_id, emoji, is_custom, custom_url
+		ORDER BY message_id, MIN(created_at)`,
+		messageIDs,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[int][]models.ReactionSummary)
+	for rows.Next() {
+		var msgID int
+		var summary models.ReactionSummary
+		if err := rows.Scan(&msgID, &summary.Emoji, &summary.IsCustom, &summary.CustomURL, &summary.Count, &summary.UserIDs); err != nil {
+			return nil, err
+		}
+		result[msgID] = append(result[msgID], summary)
+	}
+	return result, nil
+}
+
+// ToggleReaction adds or removes a reaction in a single operation
+// Returns true if added, false if removed
+func (r *ChatRepository) ToggleReaction(messageID, userID int, emoji string, isCustom bool, customURL string) (bool, error) {
+	ctx := context.Background()
+
+	// Check if reaction exists
+	var exists bool
+	err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM message_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3)`,
+		messageID, userID, emoji,
+	).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+
+	if exists {
+		// Remove reaction
+		_, err = r.pool.Exec(ctx,
+			`DELETE FROM message_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3`,
+			messageID, userID, emoji,
+		)
+		return false, err
+	} else {
+		// Add reaction
+		_, err = r.pool.Exec(ctx,
+			`INSERT INTO message_reactions (message_id, user_id, emoji, is_custom, custom_url) 
+			 VALUES ($1, $2, $3, $4, $5)`,
+			messageID, userID, emoji, isCustom, customURL,
+		)
+		return true, err
+	}
 }
 
 // Forward message
@@ -531,20 +658,44 @@ func (r *ChatRepository) InitReactionsSchema(ctx context.Context) error {
 		END IF;
 	END $$;
 
-	-- Create message_reactions table
+	-- Create message_reactions table with custom reaction support
 	CREATE TABLE IF NOT EXISTS message_reactions (
 		id SERIAL PRIMARY KEY,
 		message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
 		user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-		emoji VARCHAR(10) NOT NULL,
+		emoji VARCHAR(100) NOT NULL,
+		is_custom BOOLEAN DEFAULT FALSE,
+		custom_url TEXT,
 		created_at TIMESTAMPTZ DEFAULT NOW(),
 		UNIQUE(message_id, user_id, emoji)
 	);
 
-	-- Create indexes
+	-- Create indexes for optimal performance (20-30ms target)
 	CREATE INDEX IF NOT EXISTS idx_reactions_message ON message_reactions(message_id);
 	CREATE INDEX IF NOT EXISTS idx_reactions_user ON message_reactions(user_id);
+	CREATE INDEX IF NOT EXISTS idx_reactions_message_emoji ON message_reactions(message_id, emoji);
 	CREATE INDEX IF NOT EXISTS idx_messages_forwarded ON messages(forwarded_from);
+	
+	-- Add is_custom and custom_url columns if they don't exist (for existing installations)
+	DO $$ 
+	BEGIN
+		IF NOT EXISTS (
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name='message_reactions' AND column_name='is_custom'
+		) THEN
+			ALTER TABLE message_reactions ADD COLUMN is_custom BOOLEAN DEFAULT FALSE;
+		END IF;
+		
+		IF NOT EXISTS (
+			SELECT 1 FROM information_schema.columns 
+			WHERE table_name='message_reactions' AND column_name='custom_url'
+		) THEN
+			ALTER TABLE message_reactions ADD COLUMN custom_url TEXT;
+		END IF;
+		
+		-- Increase emoji column size if needed
+		ALTER TABLE message_reactions ALTER COLUMN emoji TYPE VARCHAR(100);
+	END $$;
 	`
 	_, err := r.pool.Exec(ctx, schema)
 	return err

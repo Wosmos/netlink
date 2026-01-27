@@ -39,6 +39,8 @@ const (
 	EventTypeUserLeft      EventType = "user_left"
 	EventTypeMessageDelete EventType = "message_delete"
 	EventTypeMessageEdit   EventType = "message_edit"
+	EventTypeReaction      EventType = "reaction"       // Single reaction added/removed
+	EventTypeReactionBatch EventType = "reaction_batch" // Batch reaction update
 )
 
 // Event is the WebSocket message format
