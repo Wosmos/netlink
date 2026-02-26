@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "NetLink",
+    "slug": "netlink-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.netlink.mobile",
+      "buildNumber": "1"
+    },
+    "android": {
+      "package": "com.netlink.mobile",
+      "versionCode": 1
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router"
+    ],
+    "scheme": "netlink",
+    "extra": {
+      "router": {
+        "origin": false
+      }
+    }
+  }
+}

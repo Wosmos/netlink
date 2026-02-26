@@ -33,7 +33,7 @@ type Message struct {
 	// Populated
 	Sender    *User            `json:"sender,omitempty"`
 	ReplyTo   *Message         `json:"reply_to,omitempty"`
-	Reactions map[string][]int `json:"reactions,omitempty"` // emoji -> [user_ids]
+	Reactions []ReactionSummary `json:"reactions,omitempty"` // aggregated reactions
 	ReadBy    []int            `json:"read_by,omitempty"`
 }
 
