@@ -206,6 +206,7 @@ type APIResponse struct {
 	Success bool        `json:"success"`
 	Message string      `json:"message,omitempty"`
 	Data    interface{} `json:"data,omitempty"`
+	Token   string      `json:"token,omitempty"`
 	Error   string      `json:"error,omitempty"`
 }
 
@@ -269,7 +270,11 @@ func (h *AuthHandler) APILogin(w http.ResponseWriter, r *http.Request) {
 
 	user, _ := h.authService.GetUserFromSession(session)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(APIResponse{Success: true, Data: user})
+	json.NewEncoder(w).Encode(APIResponse{
+		Success: true,
+		Data:    user,
+		Token:   session.ID,
+	})
 }
 
 // POST /api/auth/register

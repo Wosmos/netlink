@@ -321,6 +321,25 @@ func (r *ChatRepository) GetMessages(convID int, limit, offset int) ([]models.Me
 		m.Sender = &u
 		messages = append(messages, m)
 	}
+	
+	// Populate reactions
+	if len(messages) > 0 {
+		msgIDs := make([]int, len(messages))
+		for i, m := range messages {
+			msgIDs[i] = m.ID
+		}
+		
+		reactionsMap, err := r.GetBatchMessageReactions(msgIDs)
+		if err == nil {
+			for i := range messages {
+				if reactions, ok := reactionsMap[messages[i].ID]; ok {
+					messages[i].Reactions = reactions
+				} else {
+					messages[i].Reactions = []models.ReactionSummary{}
+				}
+			}
+		}
+	}
 
 	// Reverse to get chronological order
 	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
@@ -342,6 +361,14 @@ func (r *ChatRepository) GetLastMessage(convID int) (*models.Message, error) {
 	if err != nil {
 		return nil, err
 	}
+	
+	// Add reactions
+	if summaries, err := r.GetMessageReactionsSummary(msg.ID); err == nil {
+		msg.Reactions = summaries
+	} else {
+		msg.Reactions = []models.ReactionSummary{}
+	}
+	
 	return &msg, nil
 }
 
@@ -379,6 +406,14 @@ func (r *ChatRepository) UpdateMessage(msgID, userID int, content string) (*mode
 	if err != nil {
 		return nil, err
 	}
+	
+	// Add reactions
+	if summaries, err := r.GetMessageReactionsSummary(msg.ID); err == nil {
+		msg.Reactions = summaries
+	} else {
+		msg.Reactions = []models.ReactionSummary{}
+	}
+	
 	return &msg, nil
 }
 

@@ -162,11 +162,32 @@ func (s *AuthService) Logout(sessionID string) error {
 }
 
 func (s *AuthService) GetUserFromRequest(r *http.Request) (*models.User, error) {
+	var sessionID string
+
+	// 1. Try to get from cookie
 	cookie, err := r.Cookie(SessionCookieName)
-	if err != nil {
+	if err == nil {
+		sessionID = cookie.Value
+	}
+
+	// 2. Try to get from Authorization header (for mobile apps)
+	if sessionID == "" {
+		authHeader := r.Header.Get("Authorization")
+		if strings.HasPrefix(authHeader, "Bearer ") {
+			sessionID = strings.TrimPrefix(authHeader, "Bearer ")
+		}
+	}
+
+	// 3. Try to get from query parameter (for WebSockets)
+	if sessionID == "" {
+		sessionID = r.URL.Query().Get("token")
+	}
+
+	if sessionID == "" {
 		return nil, nil
 	}
-	session, err := s.sessionRepo.GetByID(cookie.Value)
+
+	session, err := s.sessionRepo.GetByID(sessionID)
 	if err != nil || session == nil {
 		return nil, err
 	}
