@@ -6,13 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
 
-	"go-to-do/models"
-	"go-to-do/repository"
-	"go-to-do/services"
+	"netlink/models"
+	"netlink/repository"
+	"netlink/services"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -39,10 +40,12 @@ func NewAuthService(userRepo *repository.UserRepository, sessionRepo *repository
 	}
 }
 
-func (s *AuthService) GenerateToken() string {
+func (s *AuthService) GenerateToken() (string, error) {
 	b := make([]byte, 16)
-	rand.Read(b)
-	return hex.EncodeToString(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("failed to generate token: %w", err)
+	}
+	return hex.EncodeToString(b), nil
 }
 
 func (s *AuthService) HashPassword(password string) (string, error) {
@@ -67,7 +70,10 @@ func (s *AuthService) Register(email, password string, name, phone *string) erro
 	if err != nil {
 		return err
 	}
-	token := s.GenerateToken()
+	token, err := s.GenerateToken()
+	if err != nil {
+		return err
+	}
 	_, err = s.userRepo.Create(email, hash, token, name, phone)
 	if err == nil {
 		// Send verification email using Resend
@@ -105,7 +111,10 @@ func (s *AuthService) ForgotPassword(email string) error {
 	if err != nil || user == nil {
 		return nil
 	}
-	token := s.GenerateToken()
+	token, err := s.GenerateToken()
+	if err != nil {
+		return err
+	}
 	expires := time.Now().Add(1 * time.Hour)
 	err = s.userRepo.SetResetToken(user.ID, &token, &expires)
 	if err == nil {
@@ -202,14 +211,19 @@ func (s *AuthService) GetUserFromSession(session *models.Session) (*models.User,
 }
 
 func (s *AuthService) SetSessionCookie(w http.ResponseWriter, session *models.Session) {
+	secure := os.Getenv("ENV") == "production" || os.Getenv("RAILWAY_ENVIRONMENT") != ""
+	sameSite := http.SameSiteStrictMode
+	if secure {
+		sameSite = http.SameSiteNoneMode
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,
 		Value:    session.ID,
 		Path:     "/",
 		Expires:  session.ExpiresAt,
 		HttpOnly: true,
-		Secure:   false,
-		SameSite: http.SameSiteStrictMode,
+		Secure:   secure,
+		SameSite: sameSite,
 	})
 }
 

@@ -5,9 +5,10 @@ import (
 	"net/http"
 	"strconv"
 
-	"go-to-do/auth"
-	"go-to-do/models"
-	"go-to-do/repository"
+	"netlink/auth"
+	"netlink/middleware"
+	"netlink/models"
+	"netlink/repository"
 )
 
 type NoteHandler struct {
@@ -35,7 +36,7 @@ type UpdateNoteRequest struct {
 func (h *NoteHandler) requireAuth(w http.ResponseWriter, r *http.Request) int {
 	user, err := h.authService.GetUserFromRequest(r)
 	if err != nil || user == nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		middleware.JSONError(w, "Unauthorized", http.StatusUnauthorized)
 		return 0
 	}
 	return user.ID
@@ -48,7 +49,6 @@ func (h *NoteHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if conversation_id is provided
 	convIDStr := r.URL.Query().Get("conversation_id")
 	var notes []models.Note
 	var err error
@@ -56,7 +56,7 @@ func (h *NoteHandler) List(w http.ResponseWriter, r *http.Request) {
 	if convIDStr != "" {
 		convID, parseErr := strconv.Atoi(convIDStr)
 		if parseErr != nil {
-			http.Error(w, "Invalid conversation ID", http.StatusBadRequest)
+			middleware.JSONError(w, "Invalid conversation ID", http.StatusBadRequest)
 			return
 		}
 		notes, err = h.repo.GetByConversation(convID)
@@ -65,7 +65,7 @@ func (h *NoteHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		http.Error(w, "Failed to get notes", http.StatusInternalServerError)
+		middleware.JSONError(w, "Failed to get notes", http.StatusInternalServerError)
 		return
 	}
 
@@ -91,7 +91,7 @@ func (h *NoteHandler) Create(w http.ResponseWriter, r *http.Request) {
 		ConversationID *int   `json:"conversation_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+		middleware.JSONError(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
@@ -108,7 +108,7 @@ func (h *NoteHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		http.Error(w, "Failed to create note", http.StatusInternalServerError)
+		middleware.JSONError(w, "Failed to create note", http.StatusInternalServerError)
 		return
 	}
 
@@ -127,18 +127,18 @@ func (h *NoteHandler) Get(w http.ResponseWriter, r *http.Request) {
 	idStr := r.URL.Query().Get("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		http.Error(w, "Invalid note ID", http.StatusBadRequest)
+		middleware.JSONError(w, "Invalid note ID", http.StatusBadRequest)
 		return
 	}
 
 	note, err := h.repo.GetByID(id, userID)
 	if err != nil {
-		http.Error(w, "Note not found", http.StatusNotFound)
+		middleware.JSONError(w, "Note not found", http.StatusNotFound)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(note)
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": note})
 }
 
 // PUT /api/notes/{id}
@@ -151,25 +151,24 @@ func (h *NoteHandler) Update(w http.ResponseWriter, r *http.Request) {
 	idStr := r.URL.Query().Get("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		http.Error(w, "Invalid note ID", http.StatusBadRequest)
+		middleware.JSONError(w, "Invalid note ID", http.StatusBadRequest)
 		return
 	}
 
 	var req UpdateNoteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+		middleware.JSONError(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
 	if err := h.repo.Update(id, userID, req.Title, req.Content, req.Color, req.Pinned); err != nil {
-		http.Error(w, "Failed to update note", http.StatusInternalServerError)
+		middleware.JSONError(w, "Failed to update note", http.StatusInternalServerError)
 		return
 	}
 
-	// Get the updated note to return
 	note, err := h.repo.GetByID(id, userID)
 	if err != nil {
-		http.Error(w, "Failed to get updated note", http.StatusInternalServerError)
+		middleware.JSONError(w, "Failed to get updated note", http.StatusInternalServerError)
 		return
 	}
 
@@ -187,12 +186,12 @@ func (h *NoteHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	idStr := r.URL.Query().Get("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		http.Error(w, "Invalid note ID", http.StatusBadRequest)
+		middleware.JSONError(w, "Invalid note ID", http.StatusBadRequest)
 		return
 	}
 
 	if err := h.repo.Delete(id, userID); err != nil {
-		http.Error(w, "Failed to delete note", http.StatusInternalServerError)
+		middleware.JSONError(w, "Failed to delete note", http.StatusInternalServerError)
 		return
 	}
 
@@ -210,12 +209,12 @@ func (h *NoteHandler) TogglePin(w http.ResponseWriter, r *http.Request) {
 	idStr := r.URL.Query().Get("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		http.Error(w, "Invalid note ID", http.StatusBadRequest)
+		middleware.JSONError(w, "Invalid note ID", http.StatusBadRequest)
 		return
 	}
 
 	if err := h.repo.TogglePin(id, userID); err != nil {
-		http.Error(w, "Failed to toggle pin", http.StatusInternalServerError)
+		middleware.JSONError(w, "Failed to toggle pin", http.StatusInternalServerError)
 		return
 	}
 
