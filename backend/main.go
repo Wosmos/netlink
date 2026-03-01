@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -273,24 +272,19 @@ func main() {
 		}
 		query := r.URL.Query().Get("q")
 		if query == "" {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Query required"})
+			middleware.JSONError(w, "Query required", http.StatusBadRequest)
 			return
 		}
 		users, err := userRepo.SearchUsers(query, 20)
 		if err != nil {
 			log.Printf("Search error: %v", err)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Search failed"})
+			middleware.JSONError(w, "Search failed", http.StatusInternalServerError)
 			return
 		}
 		if users == nil {
 			users = []models.User{}
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": users})
+		middleware.JSONSuccess(w, users)
 	}))
 
 	// WebSocket
@@ -299,12 +293,10 @@ func main() {
 	// Health check
 	http.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		if err := pool.Ping(r.Context()); err != nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			json.NewEncoder(w).Encode(map[string]interface{}{"status": "unhealthy", "error": "database unreachable"})
+			middleware.JSON(w, http.StatusServiceUnavailable, map[string]interface{}{"status": "unhealthy", "error": "database unreachable"})
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"status": "healthy"})
+		middleware.JSON(w, http.StatusOK, map[string]interface{}{"status": "healthy"})
 	})
 
 	port := os.Getenv("PORT")

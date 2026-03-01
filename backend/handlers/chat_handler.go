@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"netlink/middleware"
 	"netlink/models"
 	"netlink/websocket"
 
@@ -38,9 +39,7 @@ func NewChatHandler(repo ChatRepoInterface, userRepo UserRepoInterface, authServ
 func (h *ChatHandler) requireAuth(w http.ResponseWriter, r *http.Request) int {
 	user, err := h.authService.GetUserFromRequest(r)
 	if err != nil || user == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Unauthorized"})
+		middleware.JSONError(w, "Unauthorized", http.StatusUnauthorized)
 		return 0
 	}
 	return user.ID
@@ -55,9 +54,7 @@ func (h *ChatHandler) RequireAuthPublic(w http.ResponseWriter, r *http.Request) 
 func (h *ChatHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	user, err := h.authService.GetUserFromRequest(r)
 	if err != nil || user == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Unauthorized"})
+		middleware.JSONError(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -104,9 +101,7 @@ func (h *ChatHandler) ListConversations(w http.ResponseWriter, r *http.Request) 
 	conversations, err := h.repo.GetUserConversations(userID)
 	if err != nil {
 		log.Printf("Error getting conversations: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to get conversations"})
+		middleware.JSONError(w, "Failed to get conversations", http.StatusInternalServerError)
 		return
 	}
 
@@ -114,8 +109,7 @@ func (h *ChatHandler) ListConversations(w http.ResponseWriter, r *http.Request) 
 		conversations = []models.Conversation{}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": conversations})
+	middleware.JSONSuccess(w, conversations)
 }
 
 type CreateDirectChatRequest struct {
@@ -133,9 +127,7 @@ func (h *ChatHandler) CreateDirectChat(w http.ResponseWriter, r *http.Request) {
 
 	var req CreateDirectChatRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid request"})
+		middleware.JSONError(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
@@ -145,40 +137,30 @@ func (h *ChatHandler) CreateDirectChat(w http.ResponseWriter, r *http.Request) {
 	} else if req.Phone != "" {
 		user, err := h.userRepo.GetByPhone(req.Phone)
 		if err != nil || user == nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "User not found"})
+			middleware.JSONError(w, "User not found", http.StatusNotFound)
 			return
 		}
 		targetUserID = user.ID
 	} else if req.Email != "" {
 		user, err := h.userRepo.GetByEmail(req.Email)
 		if err != nil || user == nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "User not found"})
+			middleware.JSONError(w, "User not found", http.StatusNotFound)
 			return
 		}
 		targetUserID = user.ID
 	} else {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Provide user_id, phone, or email"})
+		middleware.JSONError(w, "Provide user_id, phone, or email", http.StatusBadRequest)
 		return
 	}
 
 	if targetUserID == userID {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Cannot chat with yourself"})
+		middleware.JSONError(w, "Cannot chat with yourself", http.StatusBadRequest)
 		return
 	}
 
 	conv, err := h.repo.CreateDirectConversation(userID, targetUserID)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to create conversation"})
+		middleware.JSONError(w, "Failed to create conversation", http.StatusInternalServerError)
 		return
 	}
 
@@ -190,9 +172,7 @@ func (h *ChatHandler) CreateDirectChat(w http.ResponseWriter, r *http.Request) {
 		Payload:        payload,
 	})
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": conv})
+	middleware.JSONCreated(w, conv)
 }
 
 type CreateGroupRequest struct {
@@ -209,24 +189,18 @@ func (h *ChatHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 
 	var req CreateGroupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid request"})
+		middleware.JSONError(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
 	if req.Name == "" || len(req.Name) > 100 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Group name required (max 100 chars)"})
+		middleware.JSONError(w, "Group name required (max 100 chars)", http.StatusBadRequest)
 		return
 	}
 
 	conv, err := h.repo.CreateGroupConversation(req.Name, userID, req.MemberIDs)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to create group"})
+		middleware.JSONError(w, "Failed to create group", http.StatusInternalServerError)
 		return
 	}
 
@@ -239,9 +213,7 @@ func (h *ChatHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 		Payload:        payload,
 	})
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(conv)
+	middleware.JSONCreated(w, conv)
 }
 
 // GET /api/conversations/{id}/messages
@@ -254,18 +226,14 @@ func (h *ChatHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	convIDStr := r.URL.Query().Get("id")
 	convID, err := strconv.Atoi(convIDStr)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid conversation ID"})
+		middleware.JSONError(w, "Invalid conversation ID", http.StatusBadRequest)
 		return
 	}
 
 	// Verify user is member
 	_, err = h.repo.GetConversationByID(convID, userID)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Conversation not found"})
+		middleware.JSONError(w, "Conversation not found", http.StatusNotFound)
 		return
 	}
 
@@ -281,9 +249,7 @@ func (h *ChatHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	messages, err := h.repo.GetMessages(convID, limit, offset)
 	if err != nil {
 		log.Printf("Error getting messages: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to get messages"})
+		middleware.JSONError(w, "Failed to get messages", http.StatusInternalServerError)
 		return
 	}
 
@@ -291,8 +257,7 @@ func (h *ChatHandler) GetMessages(w http.ResponseWriter, r *http.Request) {
 		messages = []models.Message{}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": messages})
+	middleware.JSONSuccess(w, messages)
 }
 
 type SendMessageRequest struct {
@@ -315,33 +280,25 @@ func (h *ChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	convIDStr := r.URL.Query().Get("id")
 	convID, err := strconv.Atoi(convIDStr)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid conversation ID"})
+		middleware.JSONError(w, "Invalid conversation ID", http.StatusBadRequest)
 		return
 	}
 
 	// Verify user is member
 	_, err = h.repo.GetConversationByID(convID, userID)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Conversation not found"})
+		middleware.JSONError(w, "Conversation not found", http.StatusNotFound)
 		return
 	}
 
 	var req SendMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid request"})
+		middleware.JSONError(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
 	if req.Content == "" || len(req.Content) > 10000 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Message content required (max 10000 chars)"})
+		middleware.JSONError(w, "Message content required (max 10000 chars)", http.StatusBadRequest)
 		return
 	}
 
@@ -352,9 +309,7 @@ func (h *ChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 
 	msg, err := h.repo.CreateMessage(convID, userID, msgType, req.Content, req.ReplyToID)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to send message"})
+		middleware.JSONError(w, "Failed to send message", http.StatusInternalServerError)
 		return
 	}
 
@@ -380,9 +335,7 @@ func (h *ChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		Payload:        payload,
 	})
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": msg})
+	middleware.JSONCreated(w, msg)
 }
 
 type EditMessageRequest struct {
@@ -399,50 +352,38 @@ func (h *ChatHandler) EditMessage(w http.ResponseWriter, r *http.Request) {
 	convIDStr := r.URL.Query().Get("id")
 	convID, err := strconv.Atoi(convIDStr)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid conversation ID"})
+		middleware.JSONError(w, "Invalid conversation ID", http.StatusBadRequest)
 		return
 	}
 
 	msgIDStr := r.URL.Query().Get("msg_id")
 	msgID, err := strconv.Atoi(msgIDStr)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid message ID"})
+		middleware.JSONError(w, "Invalid message ID", http.StatusBadRequest)
 		return
 	}
 
 	// Verify user is member of conversation
 	_, err = h.repo.GetConversationByID(convID, userID)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Conversation not found"})
+		middleware.JSONError(w, "Conversation not found", http.StatusNotFound)
 		return
 	}
 
 	var req EditMessageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid request"})
+		middleware.JSONError(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
 	if req.Content == "" || len(req.Content) > 10000 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Message content required (max 10000 chars)"})
+		middleware.JSONError(w, "Message content required (max 10000 chars)", http.StatusBadRequest)
 		return
 	}
 
 	msg, err := h.repo.UpdateMessage(msgID, userID, req.Content)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to update message"})
+		middleware.JSONError(w, "Failed to update message", http.StatusInternalServerError)
 		return
 	}
 
@@ -461,8 +402,7 @@ func (h *ChatHandler) EditMessage(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": msg})
+	middleware.JSONSuccess(w, msg)
 }
 
 // POST /api/conversations/{id}/read
@@ -475,16 +415,12 @@ func (h *ChatHandler) MarkAsRead(w http.ResponseWriter, r *http.Request) {
 	convIDStr := r.URL.Query().Get("id")
 	convID, err := strconv.Atoi(convIDStr)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid conversation ID"})
+		middleware.JSONError(w, "Invalid conversation ID", http.StatusBadRequest)
 		return
 	}
 
 	if err := h.repo.MarkAsRead(convID, userID); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to mark as read"})
+		middleware.JSONError(w, "Failed to mark as read", http.StatusInternalServerError)
 		return
 	}
 
@@ -496,8 +432,7 @@ func (h *ChatHandler) MarkAsRead(w http.ResponseWriter, r *http.Request) {
 		UserID:         userID,
 	})
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	middleware.JSONOk(w)
 }
 
 // POST /api/conversations/{id}/typing
@@ -510,9 +445,7 @@ func (h *ChatHandler) SendTyping(w http.ResponseWriter, r *http.Request) {
 	convIDStr := r.URL.Query().Get("id")
 	convID, err := strconv.Atoi(convIDStr)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid conversation ID"})
+		middleware.JSONError(w, "Invalid conversation ID", http.StatusBadRequest)
 		return
 	}
 
@@ -523,8 +456,7 @@ func (h *ChatHandler) SendTyping(w http.ResponseWriter, r *http.Request) {
 		UserID:         userID,
 	})
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	middleware.JSONOk(w)
 }
 
 // GET /api/users/online
@@ -536,8 +468,7 @@ func (h *ChatHandler) GetOnlineUsers(w http.ResponseWriter, r *http.Request) {
 
 	onlineUsers := h.hub.GetOnlineUsers()
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	middleware.JSON(w, http.StatusOK, map[string]interface{}{
 		"online_users": onlineUsers,
 	})
 }
@@ -552,18 +483,14 @@ func (h *ChatHandler) DeleteConversation(w http.ResponseWriter, r *http.Request)
 	convIDStr := r.URL.Query().Get("id")
 	convID, err := strconv.Atoi(convIDStr)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid conversation ID"})
+		middleware.JSONError(w, "Invalid conversation ID", http.StatusBadRequest)
 		return
 	}
 
 	// Verify user is member
 	conv, err := h.repo.GetConversationByID(convID, userID)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Conversation not found"})
+		middleware.JSONError(w, "Conversation not found", http.StatusNotFound)
 		return
 	}
 
@@ -576,14 +503,11 @@ func (h *ChatHandler) DeleteConversation(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to delete conversation"})
+		middleware.JSONError(w, "Failed to delete conversation", http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	middleware.JSONOk(w)
 }
 
 // POST /api/messages/react - Add or toggle reaction (optimized for 20-30ms)
@@ -596,9 +520,7 @@ func (h *ChatHandler) ReactToMessage(w http.ResponseWriter, r *http.Request) {
 	msgIDStr := r.URL.Query().Get("msg_id")
 	msgID, err := strconv.Atoi(msgIDStr)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid message ID"})
+		middleware.JSONError(w, "Invalid message ID", http.StatusBadRequest)
 		return
 	}
 
@@ -609,9 +531,7 @@ func (h *ChatHandler) ReactToMessage(w http.ResponseWriter, r *http.Request) {
 		Toggle    bool   `json:"toggle"` // If true, toggle reaction on/off
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Emoji == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Emoji required"})
+		middleware.JSONError(w, "Emoji required", http.StatusBadRequest)
 		return
 	}
 
@@ -621,9 +541,7 @@ func (h *ChatHandler) ReactToMessage(w http.ResponseWriter, r *http.Request) {
 		// Try without user check (user might not be sender)
 		convID, err = h.repo.GetConversationIDByMessageID(msgID)
 		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Message not found"})
+			middleware.JSONError(w, "Message not found", http.StatusNotFound)
 			return
 		}
 	}
@@ -643,9 +561,7 @@ func (h *ChatHandler) ReactToMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to update reaction"})
+		middleware.JSONError(w, "Failed to update reaction", http.StatusInternalServerError)
 		return
 	}
 
@@ -662,7 +578,7 @@ func (h *ChatHandler) ReactToMessage(w http.ResponseWriter, r *http.Request) {
 			"is_custom":  req.IsCustom,
 			"custom_url": req.CustomURL,
 			"added":      added,
-			"reactions":  reactions, // Full summary for immediate UI update
+			"reactions":  reactions,
 		})
 		h.hub.BroadcastToUsers(memberIDs, &websocket.Event{
 			Type:           websocket.EventTypeReaction,
@@ -672,8 +588,7 @@ func (h *ChatHandler) ReactToMessage(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	middleware.JSON(w, http.StatusOK, map[string]interface{}{
 		"success":   true,
 		"added":     added,
 		"reactions": reactions,
@@ -690,33 +605,25 @@ func (h *ChatHandler) RemoveReaction(w http.ResponseWriter, r *http.Request) {
 	msgIDStr := r.URL.Query().Get("msg_id")
 	msgID, err := strconv.Atoi(msgIDStr)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid message ID"})
+		middleware.JSONError(w, "Invalid message ID", http.StatusBadRequest)
 		return
 	}
 
 	emoji := r.URL.Query().Get("emoji")
 	if emoji == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Emoji required"})
+		middleware.JSONError(w, "Emoji required", http.StatusBadRequest)
 		return
 	}
 
 	// Get conversation ID for broadcasting
 	convID, err := h.repo.GetConversationIDByMessageID(msgID)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Message not found"})
+		middleware.JSONError(w, "Message not found", http.StatusNotFound)
 		return
 	}
 
 	if err := h.repo.RemoveReaction(msgID, userID, emoji); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to remove reaction"})
+		middleware.JSONError(w, "Failed to remove reaction", http.StatusInternalServerError)
 		return
 	}
 
@@ -741,8 +648,10 @@ func (h *ChatHandler) RemoveReaction(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "reactions": reactions})
+	middleware.JSON(w, http.StatusOK, map[string]interface{}{
+		"success":   true,
+		"reactions": reactions,
+	})
 }
 
 // GET /api/messages/reactions - Get reactions for a message
@@ -755,22 +664,17 @@ func (h *ChatHandler) GetMessageReactions(w http.ResponseWriter, r *http.Request
 	msgIDStr := r.URL.Query().Get("msg_id")
 	msgID, err := strconv.Atoi(msgIDStr)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid message ID"})
+		middleware.JSONError(w, "Invalid message ID", http.StatusBadRequest)
 		return
 	}
 
 	reactions, err := h.repo.GetMessageReactionsSummary(msgID)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to get reactions"})
+		middleware.JSONError(w, "Failed to get reactions", http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": reactions})
+	middleware.JSONSuccess(w, reactions)
 }
 
 // POST /api/messages/forward
@@ -785,16 +689,12 @@ func (h *ChatHandler) ForwardMessage(w http.ResponseWriter, r *http.Request) {
 		TargetConvIDs []int `json:"target_conversation_ids"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid request"})
+		middleware.JSONError(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
 	if len(req.TargetConvIDs) == 0 || len(req.TargetConvIDs) > 20 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Provide 1-20 target conversations"})
+		middleware.JSONError(w, "Provide 1-20 target conversations", http.StatusBadRequest)
 		return
 	}
 
@@ -828,8 +728,7 @@ func (h *ChatHandler) ForwardMessage(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	middleware.JSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"data":    forwardedMessages,
 		"count":   len(forwardedMessages),
@@ -846,25 +745,19 @@ func (h *ChatHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 	msgIDStr := r.URL.Query().Get("msg_id")
 	msgID, err := strconv.Atoi(msgIDStr)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid message ID"})
+		middleware.JSONError(w, "Invalid message ID", http.StatusBadRequest)
 		return
 	}
 
 	// Get conversation ID before deleting (for broadcasting)
 	convID, err := h.repo.GetMessageConversationID(msgID, userID)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Message not found"})
+		middleware.JSONError(w, "Message not found", http.StatusNotFound)
 		return
 	}
 
 	if err := h.repo.DeleteMessage(msgID, userID); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to delete message"})
+		middleware.JSONError(w, "Failed to delete message", http.StatusInternalServerError)
 		return
 	}
 
@@ -884,6 +777,5 @@ func (h *ChatHandler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	middleware.JSONOk(w)
 }

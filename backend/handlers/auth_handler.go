@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"netlink/auth"
@@ -209,14 +210,6 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 
 // ============ API Methods ============
 
-type APIResponse struct {
-	Success bool        `json:"success"`
-	Message string      `json:"message,omitempty"`
-	Data    interface{} `json:"data,omitempty"`
-	Token   string      `json:"token,omitempty"`
-	Error   string      `json:"error,omitempty"`
-}
-
 type LoginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
@@ -233,14 +226,11 @@ type RegisterRequest struct {
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	user, err := h.authService.GetUserFromRequest(r)
 	if err != nil || user == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Not authenticated"})
+		middleware.JSONError(w, "Not authenticated", http.StatusUnauthorized)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(APIResponse{Success: true, Data: user})
+	middleware.JSONSuccess(w, user)
 }
 
 // POST /api/auth/login
@@ -252,35 +242,28 @@ func (h *AuthHandler) APILogin(w http.ResponseWriter, r *http.Request) {
 
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Invalid request"})
+		middleware.JSONError(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
 	email := strings.TrimSpace(strings.ToLower(req.Email))
 	session, err := h.authService.Login(email, req.Password)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: err.Error()})
+		middleware.JSONError(w, err.Error(), http.StatusUnauthorized)
 		return
 	}
 	if session == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Invalid email or password"})
+		middleware.JSONError(w, "Invalid email or password", http.StatusUnauthorized)
 		return
 	}
 
 	h.authService.SetSessionCookie(w, session)
 
 	user, _ := h.authService.GetUserFromSession(session)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(APIResponse{
-		Success: true,
-		Data:    user,
-		Token:   session.ID,
+	middleware.JSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data":    user,
+		"token":   session.ID,
 	})
 }
 
@@ -293,23 +276,17 @@ func (h *AuthHandler) APIRegister(w http.ResponseWriter, r *http.Request) {
 
 	var req RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Invalid request"})
+		middleware.JSONError(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
 	email := strings.TrimSpace(strings.ToLower(req.Email))
 	if !h.authService.ValidateEmail(email) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Invalid email"})
+		middleware.JSONError(w, "Invalid email", http.StatusBadRequest)
 		return
 	}
 	if !h.authService.ValidatePassword(req.Password) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Password must be 8-128 characters"})
+		middleware.JSONError(w, "Password must be 8-128 characters", http.StatusBadRequest)
 		return
 	}
 
@@ -325,18 +302,15 @@ func (h *AuthHandler) APIRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.authService.Register(email, req.Password, namePtr, phonePtr); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
 		if strings.Contains(err.Error(), "UNIQUE") {
-			json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Email already registered"})
+			middleware.JSONError(w, "Email already registered", http.StatusBadRequest)
 		} else {
-			json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Registration failed"})
+			middleware.JSONError(w, "Registration failed", http.StatusBadRequest)
 		}
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(APIResponse{Success: true, Message: "Verification email sent"})
+	middleware.JSONSuccessMessage(w, "Verification email sent")
 }
 
 // POST /api/auth/logout
@@ -346,8 +320,7 @@ func (h *AuthHandler) APILogout(w http.ResponseWriter, r *http.Request) {
 	}
 	h.authService.ClearSessionCookie(w)
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(APIResponse{Success: true, Message: "Logged out"})
+	middleware.JSONSuccessMessage(w, "Logged out")
 }
 
 // POST /api/auth/forgot-password
@@ -361,30 +334,23 @@ func (h *AuthHandler) APIForgotPassword(w http.ResponseWriter, r *http.Request) 
 		Email string `json:"email"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Invalid request"})
+		middleware.JSONError(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
 	email := strings.TrimSpace(strings.ToLower(req.Email))
 	if !h.authService.ValidateEmail(email) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Invalid email"})
+		middleware.JSONError(w, "Invalid email", http.StatusBadRequest)
 		return
 	}
 
 	if err := h.authService.ForgotPassword(email); err != nil {
 		log.Printf("Forgot password error: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "An error occurred"})
+		middleware.JSONError(w, "An error occurred", http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(APIResponse{Success: true, Message: "If that email is registered, you will receive a reset link"})
+	middleware.JSONSuccessMessage(w, "If that email is registered, you will receive a reset link")
 }
 
 // POST /api/auth/reset-password
@@ -399,35 +365,26 @@ func (h *AuthHandler) APIResetPassword(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Invalid request"})
+		middleware.JSONError(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
 	if req.Token == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Token required"})
+		middleware.JSONError(w, "Token required", http.StatusBadRequest)
 		return
 	}
 
 	if !h.authService.ValidatePassword(req.Password) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Password must be 8-128 characters"})
+		middleware.JSONError(w, "Password must be 8-128 characters", http.StatusBadRequest)
 		return
 	}
 
 	if err := h.authService.ResetPassword(req.Token, req.Password); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: err.Error()})
+		middleware.JSONError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(APIResponse{Success: true, Message: "Password reset successful"})
+	middleware.JSONSuccessMessage(w, "Password reset successful")
 }
 
 // GET /api/auth/verify - API version of email verification
@@ -439,27 +396,28 @@ func (h *AuthHandler) APIVerify(w http.ResponseWriter, r *http.Request) {
 
 	token := r.URL.Query().Get("token")
 	if token == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Invalid verification link"})
+		middleware.JSONError(w, "Invalid verification link", http.StatusBadRequest)
 		return
 	}
 
 	if err := h.authService.VerifyEmail(token); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Verification failed: " + err.Error()})
+		middleware.JSONError(w, "Verification failed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(APIResponse{Success: true, Message: "Email verified successfully! You can now log in."})
+	middleware.JSONSuccessMessage(w, "Email verified successfully! You can now log in.")
 }
 
-// POST /api/test-email - Test email functionality
+// POST /api/test-email - Test email functionality (dev-only)
 func (h *AuthHandler) TestEmail(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		middleware.JSONMethodNotAllowed(w)
+		return
+	}
+
+	// Guard: only allow in development
+	if os.Getenv("ENV") == "production" || os.Getenv("RAILWAY_ENVIRONMENT") != "" {
+		middleware.JSONError(w, "Not available in production", http.StatusForbidden)
 		return
 	}
 
@@ -467,9 +425,7 @@ func (h *AuthHandler) TestEmail(w http.ResponseWriter, r *http.Request) {
 		Email string `json:"email"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: "Invalid request"})
+		middleware.JSONError(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
@@ -481,12 +437,9 @@ func (h *AuthHandler) TestEmail(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.authService.TestEmailDelivery(testEmail); err != nil {
 		log.Printf("Test email error: %v", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(APIResponse{Success: false, Error: err.Error()})
+		middleware.JSONError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(APIResponse{Success: true, Message: fmt.Sprintf("Test email sent to %s", testEmail)})
+	middleware.JSONSuccessMessage(w, fmt.Sprintf("Test email sent to %s", testEmail))
 }
