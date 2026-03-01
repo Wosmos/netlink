@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"go-to-do/models"
+	"netlink/models"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -188,12 +188,30 @@ func (r *ChatRepository) GetConversationByID(convID, userID int) (*models.Conver
 }
 
 func (r *ChatRepository) GetUserConversations(userID int) ([]models.Conversation, error) {
-	rows, err := r.pool.Query(
-		context.Background(),
-		`SELECT c.id, c.type, COALESCE(c.name, ''), COALESCE(c.avatar, ''), c.created_by, c.created_at, c.updated_at
+	ctx := context.Background()
+
+	// Single query with lateral joins — eliminates N+1 for last message and unread count
+	rows, err := r.pool.Query(ctx,
+		`SELECT
+			c.id, c.type, COALESCE(c.name, ''), COALESCE(c.avatar, ''), c.created_by, c.created_at, c.updated_at,
+			lm.id, lm.conversation_id, lm.sender_id, lm.type, lm.content, lm.created_at,
+			uc.count
 		 FROM conversations c
-		 JOIN conversation_members cm ON c.id = cm.conversation_id
-		 WHERE cm.user_id = $1
+		 JOIN conversation_members cm ON c.id = cm.conversation_id AND cm.user_id = $1
+		 LEFT JOIN LATERAL (
+			SELECT m.id, m.conversation_id, m.sender_id, m.type, m.content, m.created_at
+			FROM messages m
+			WHERE m.conversation_id = c.id AND m.deleted_at IS NULL
+			ORDER BY m.created_at DESC LIMIT 1
+		 ) lm ON true
+		 LEFT JOIN LATERAL (
+			SELECT COUNT(*) as count
+			FROM messages m2
+			WHERE m2.conversation_id = c.id
+			  AND m2.sender_id != $1
+			  AND m2.created_at > cm.last_read_at
+			  AND m2.deleted_at IS NULL
+		 ) uc ON true
 		 ORDER BY c.updated_at DESC`,
 		userID,
 	)
@@ -203,20 +221,73 @@ func (r *ChatRepository) GetUserConversations(userID int) ([]models.Conversation
 	defer rows.Close()
 
 	var conversations []models.Conversation
+	var convIDs []int
 	for rows.Next() {
 		var conv models.Conversation
 		var createdBy *int
-		if err := rows.Scan(&conv.ID, &conv.Type, &conv.Name, &conv.Avatar, &createdBy, &conv.CreatedAt, &conv.UpdatedAt); err != nil {
+		var lmID, lmConvID, lmSenderID *int
+		var lmType, lmContent *string
+		var lmCreatedAt *time.Time
+		var unreadCount int
+
+		if err := rows.Scan(
+			&conv.ID, &conv.Type, &conv.Name, &conv.Avatar, &createdBy, &conv.CreatedAt, &conv.UpdatedAt,
+			&lmID, &lmConvID, &lmSenderID, &lmType, &lmContent, &lmCreatedAt,
+			&unreadCount,
+		); err != nil {
 			return nil, err
 		}
+
 		if createdBy != nil {
 			conv.CreatedBy = *createdBy
 		}
-		conv.Members, _ = r.GetConversationMembers(conv.ID)
-		conv.LastMessage, _ = r.GetLastMessage(conv.ID)
-		conv.UnreadCount, _ = r.GetUnreadCount(conv.ID, userID)
+
+		if lmID != nil {
+			conv.LastMessage = &models.Message{
+				ID:             *lmID,
+				ConversationID: *lmConvID,
+				SenderID:       *lmSenderID,
+				Type:           models.MessageType(*lmType),
+				Content:        *lmContent,
+				CreatedAt:      *lmCreatedAt,
+				Reactions:      []models.ReactionSummary{},
+			}
+		}
+
+		conv.UnreadCount = unreadCount
 		conversations = append(conversations, conv)
+		convIDs = append(convIDs, conv.ID)
 	}
+
+	// Batch-fetch members for all conversations in one query
+	if len(convIDs) > 0 {
+		memberRows, err := r.pool.Query(ctx,
+			`SELECT cm.conversation_id, cm.user_id, cm.role, cm.joined_at, cm.last_read_at,
+			        u.id, u.email, COALESCE(u.name, ''), COALESCE(u.avatar, ''), u.last_seen_at
+			 FROM conversation_members cm
+			 JOIN users u ON cm.user_id = u.id
+			 WHERE cm.conversation_id = ANY($1)`,
+			convIDs,
+		)
+		if err == nil {
+			defer memberRows.Close()
+			membersMap := make(map[int][]models.ConversationMember)
+			for memberRows.Next() {
+				var m models.ConversationMember
+				var u models.User
+				if err := memberRows.Scan(&m.ConversationID, &m.UserID, &m.Role, &m.JoinedAt, &m.LastReadAt,
+					&u.ID, &u.Email, &u.Name, &u.Avatar, &u.LastSeenAt); err != nil {
+					continue
+				}
+				m.User = &u
+				membersMap[m.ConversationID] = append(membersMap[m.ConversationID], m)
+			}
+			for i := range conversations {
+				conversations[i].Members = membersMap[conversations[i].ID]
+			}
+		}
+	}
+
 	return conversations, nil
 }
 
@@ -668,13 +739,24 @@ func (r *ChatRepository) DeleteMessage(messageID, userID int) error {
 	return err
 }
 
-// GetMessageConversationID gets the conversation ID for a message
+// GetMessageConversationID gets the conversation ID for a message owned by the user
 func (r *ChatRepository) GetMessageConversationID(messageID, userID int) (int, error) {
 	var convID int
 	err := r.pool.QueryRow(
 		context.Background(),
 		`SELECT conversation_id FROM messages WHERE id = $1 AND sender_id = $2`,
 		messageID, userID,
+	).Scan(&convID)
+	return convID, err
+}
+
+// GetConversationIDByMessageID gets the conversation ID for any message (no sender check)
+func (r *ChatRepository) GetConversationIDByMessageID(messageID int) (int, error) {
+	var convID int
+	err := r.pool.QueryRow(
+		context.Background(),
+		`SELECT conversation_id FROM messages WHERE id = $1`,
+		messageID,
 	).Scan(&convID)
 	return convID, err
 }
