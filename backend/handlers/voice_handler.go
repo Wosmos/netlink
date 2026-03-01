@@ -237,7 +237,7 @@ func (h *VoiceHandler) DownloadVoice(w http.ResponseWriter, r *http.Request) {
 
 	// Security: Prevent directory traversal
 	cleanPath := filepath.Clean(filePath)
-	if filepath.IsAbs(cleanPath) || filepath.Dir(cleanPath) == ".." {
+	if filepath.IsAbs(cleanPath) || strings.Contains(cleanPath, "..") {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid file path"})
@@ -245,6 +245,16 @@ func (h *VoiceHandler) DownloadVoice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fullPath := filepath.Join(h.uploadDir, cleanPath)
+
+	// Double-check: resolved path must be inside uploadDir
+	absUpload, _ := filepath.Abs(h.uploadDir)
+	absFull, _ := filepath.Abs(fullPath)
+	if !strings.HasPrefix(absFull, absUpload+string(filepath.Separator)) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid file path"})
+		return
+	}
 
 	// Check if file exists
 	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
@@ -324,8 +334,15 @@ func (h *VoiceHandler) DeleteVoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Security: Ensure user can only delete their own files
+	// Security: Prevent directory traversal and ensure user owns the file
 	cleanPath := filepath.Clean(filePath)
+	if filepath.IsAbs(cleanPath) || strings.Contains(cleanPath, "..") {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid file path"})
+		return
+	}
+
 	userPrefix := strconv.Itoa(userID) + string(filepath.Separator)
 	if !strings.HasPrefix(cleanPath, userPrefix) {
 		w.Header().Set("Content-Type", "application/json")
@@ -335,6 +352,16 @@ func (h *VoiceHandler) DeleteVoice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fullPath := filepath.Join(h.uploadDir, cleanPath)
+
+	// Double-check: resolved path must be inside uploadDir
+	absUpload, _ := filepath.Abs(h.uploadDir)
+	absFull, _ := filepath.Abs(fullPath)
+	if !strings.HasPrefix(absFull, absUpload+string(filepath.Separator)) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid file path"})
+		return
+	}
 
 	// Delete file
 	if err := os.Remove(fullPath); err != nil {
