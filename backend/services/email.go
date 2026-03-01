@@ -167,7 +167,7 @@ func (s *EmailService) SendVerificationEmail(to, token string) error {
         
         <div style="background: #f9fafb; padding: 24px 30px; text-align: center; border-top: 1px solid #e5e7eb;">
             <p style="color: #6b7280; font-size: 14px; margin-bottom: 8px;">Need help? Contact our support team</p>
-            <p style="color: #9ca3af; font-size: 12px;">© 2024 Your App Name. All rights reserved.</p>
+            <p style="color: #9ca3af; font-size: 12px;">© 2025 NetLink. All rights reserved.</p>
         </div>
     </div>
 </body>
@@ -225,7 +225,7 @@ func (s *EmailService) SendPasswordResetEmail(to, token string) error {
         
         <div style="background: #f9fafb; padding: 24px 30px; text-align: center; border-top: 1px solid #e5e7eb;">
             <p style="color: #6b7280; font-size: 14px; margin-bottom: 8px;">Need help? Contact our support team</p>
-            <p style="color: #9ca3af; font-size: 12px;">© 2024 Your App Name. All rights reserved.</p>
+            <p style="color: #9ca3af; font-size: 12px;">© 2025 NetLink. All rights reserved.</p>
         </div>
     </div>
 </body>
@@ -278,7 +278,7 @@ func (s *EmailService) SendOTPEmail(to, otp string) error {
         
         <div style="background: #f9fafb; padding: 24px 30px; text-align: center; border-top: 1px solid #e5e7eb;">
             <p style="color: #6b7280; font-size: 14px; margin-bottom: 8px;">Need help? Contact our support team</p>
-            <p style="color: #9ca3af; font-size: 12px;">© 2024 Your App Name. All rights reserved.</p>
+            <p style="color: #9ca3af; font-size: 12px;">© 2025 NetLink. All rights reserved.</p>
         </div>
     </div>
 </body>

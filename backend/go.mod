@@ -1,4 +1,4 @@
-module go-to-do
+module netlink
 
 go 1.25.0
 

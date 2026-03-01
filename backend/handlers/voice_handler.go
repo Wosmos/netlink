@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"go-to-do/auth"
-	"go-to-do/repository"
+	"netlink/auth"
+	"netlink/repository"
 )
 
 // Maps content types to file extensions and back

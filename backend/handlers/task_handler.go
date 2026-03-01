@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"go-to-do/auth"
-	"go-to-do/models"
-	"go-to-do/repository"
+	"netlink/auth"
+	"netlink/models"
+	"netlink/repository"
 )
 
 type TaskHandler struct {

@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 
-	"go-to-do/models"
+	"netlink/models"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
