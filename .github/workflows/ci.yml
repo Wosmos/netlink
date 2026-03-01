@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  backend:
+    name: Backend (Go)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Build
+        working-directory: ./backend
+        run: go build ./...
+
+      - name: Test
+        working-directory: ./backend
+        run: go test ./... -v -count=1
+
+      - name: Vet
+        working-directory: ./backend
+        run: go vet ./...
+
+  frontend:
+    name: Frontend (Next.js)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        working-directory: ./frontend
+        run: bun run build

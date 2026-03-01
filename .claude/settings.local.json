@@ -18,7 +18,8 @@
       "Bash(node_modules/.bin/tsc --noEmit --skipLibCheck)",
       "Bash(node_modules/.bin/tsc --noEmit --skipLibCheck --module esnext --moduleResolution bundler --jsx react-native --target esnext --strict --baseUrl . --paths '{\"\"@/*\"\":[\"\"./src/*\"\"]}')",
       "Bash(npx next lint)",
-      "Bash(bun run tsc --noEmit)"
+      "Bash(bun run tsc --noEmit)",
+      "Bash(go test ./auth/ ./middleware/ ./websocket/ ./models/ -v -count=1)"
     ]
   }
 }
