@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"netlink/auth"
+	"netlink/middleware"
 	"netlink/models"
 	"netlink/repository"
 )
@@ -87,9 +88,7 @@ func (h *TaskHandler) Delete(w http.ResponseWriter, r *http.Request) {
 func (h *TaskHandler) requireAuthAPI(w http.ResponseWriter, r *http.Request) *models.User {
 	user, err := h.authService.GetUserFromRequest(r)
 	if err != nil || user == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Unauthorized"})
+		middleware.JSONError(w, "Unauthorized", http.StatusUnauthorized)
 		return nil
 	}
 	return user
@@ -109,9 +108,7 @@ func (h *TaskHandler) APIList(w http.ResponseWriter, r *http.Request) {
 	if convIDStr != "" {
 		convID, parseErr := strconv.Atoi(convIDStr)
 		if parseErr != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid conversation ID"})
+			middleware.JSONError(w, "Invalid conversation ID", http.StatusBadRequest)
 			return
 		}
 		tasks, err = h.repo.GetByConversation(convID, user.ID)
@@ -123,8 +120,7 @@ func (h *TaskHandler) APIList(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Error getting tasks: %v", err)
 		tasks = []models.Task{}
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "data": tasks})
+	middleware.JSONSuccess(w, tasks)
 }
 
 func (h *TaskHandler) APICreate(w http.ResponseWriter, r *http.Request) {
@@ -137,9 +133,7 @@ func (h *TaskHandler) APICreate(w http.ResponseWriter, r *http.Request) {
 		ConversationID *int   `json:"conversation_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Text == "" || len(req.Text) > 5000 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Text required (max 5000 chars)"})
+		middleware.JSONError(w, "Text required (max 5000 chars)", http.StatusBadRequest)
 		return
 	}
 
@@ -151,15 +145,11 @@ func (h *TaskHandler) APICreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to create task"})
+		middleware.JSONError(w, "Failed to create task", http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	middleware.JSONCreated(w, nil)
 }
 
 func (h *TaskHandler) APIToggle(w http.ResponseWriter, r *http.Request) {
@@ -169,8 +159,7 @@ func (h *TaskHandler) APIToggle(w http.ResponseWriter, r *http.Request) {
 	}
 	id, _ := strconv.Atoi(r.URL.Query().Get("id"))
 	h.repo.Toggle(id, user.ID)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	middleware.JSONOk(w)
 }
 
 func (h *TaskHandler) APIDelete(w http.ResponseWriter, r *http.Request) {
@@ -180,6 +169,5 @@ func (h *TaskHandler) APIDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	id, _ := strconv.Atoi(r.URL.Query().Get("id"))
 	h.repo.Delete(id, user.ID)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	middleware.JSONOk(w)
 }

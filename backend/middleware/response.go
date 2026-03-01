@@ -46,6 +46,21 @@ func JSONCreated(w http.ResponseWriter, data interface{}) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+// JSONOk writes {"success": true} with no data.
+func JSONOk(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+// JSON writes an arbitrary map as JSON with status 200.
+func JSON(w http.ResponseWriter, status int, data map[string]interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	if status != http.StatusOK {
+		w.WriteHeader(status)
+	}
+	json.NewEncoder(w).Encode(data)
+}
+
 // JSONMethodNotAllowed writes a 405 JSON response.
 func JSONMethodNotAllowed(w http.ResponseWriter) {
 	JSONError(w, "Method not allowed", http.StatusMethodNotAllowed)
