@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"netlink/models"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -65,7 +67,7 @@ func (r *SessionRepository) GetByID(sessionID string) (*models.Session, error) {
 		sessionID, time.Now(),
 	).Scan(&session.ID, &session.UserID, &session.ExpiresAt, &session.CreatedAt)
 	if err != nil {
-		if err.Error() == "no rows in result set" {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
