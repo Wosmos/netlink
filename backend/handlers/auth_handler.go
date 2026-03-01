@@ -3,22 +3,24 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
-	"go-to-do/auth"
 	"html/template"
 	"log"
 	"net/http"
 	"strings"
+
+	"netlink/auth"
+	"netlink/middleware"
 )
 
 type AuthHandler struct {
-	authService        *auth.AuthService
+	authService        AuthServiceInterface
 	loginTmpl          *template.Template
 	registerTmpl       *template.Template
 	forgotPasswordTmpl *template.Template
 	resetPasswordTmpl  *template.Template
 }
 
-func NewAuthHandler(authService *auth.AuthService) *AuthHandler {
+func NewAuthHandler(authService AuthServiceInterface) *AuthHandler {
 	loginTmpl := template.Must(template.ParseFiles("templates/login.html"))
 	registerTmpl := template.Must(template.ParseFiles("templates/register.html"))
 	forgotPasswordTmpl := template.Must(template.ParseFiles("templates/forgot_password.html"))
@@ -30,6 +32,11 @@ func NewAuthHandler(authService *auth.AuthService) *AuthHandler {
 		forgotPasswordTmpl: forgotPasswordTmpl,
 		resetPasswordTmpl:  resetPasswordTmpl,
 	}
+}
+
+// NewAPIAuthHandler creates an AuthHandler without templates (for API-only use and testing).
+func NewAPIAuthHandler(authService AuthServiceInterface) *AuthHandler {
+	return &AuthHandler{authService: authService}
 }
 
 type AuthPageData struct {
@@ -239,7 +246,7 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 // POST /api/auth/login
 func (h *AuthHandler) APILogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		middleware.JSONMethodNotAllowed(w)
 		return
 	}
 
@@ -280,7 +287,7 @@ func (h *AuthHandler) APILogin(w http.ResponseWriter, r *http.Request) {
 // POST /api/auth/register
 func (h *AuthHandler) APIRegister(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		middleware.JSONMethodNotAllowed(w)
 		return
 	}
 
@@ -346,7 +353,7 @@ func (h *AuthHandler) APILogout(w http.ResponseWriter, r *http.Request) {
 // POST /api/auth/forgot-password
 func (h *AuthHandler) APIForgotPassword(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		middleware.JSONMethodNotAllowed(w)
 		return
 	}
 
@@ -383,7 +390,7 @@ func (h *AuthHandler) APIForgotPassword(w http.ResponseWriter, r *http.Request) 
 // POST /api/auth/reset-password
 func (h *AuthHandler) APIResetPassword(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		middleware.JSONMethodNotAllowed(w)
 		return
 	}
 
@@ -426,7 +433,7 @@ func (h *AuthHandler) APIResetPassword(w http.ResponseWriter, r *http.Request) {
 // GET /api/auth/verify - API version of email verification
 func (h *AuthHandler) APIVerify(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		middleware.JSONMethodNotAllowed(w)
 		return
 	}
 
@@ -452,7 +459,7 @@ func (h *AuthHandler) APIVerify(w http.ResponseWriter, r *http.Request) {
 // POST /api/test-email - Test email functionality
 func (h *AuthHandler) TestEmail(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		middleware.JSONMethodNotAllowed(w)
 		return
 	}
 

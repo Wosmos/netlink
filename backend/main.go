@@ -13,12 +13,13 @@ import (
 	"syscall"
 	"time"
 
-	"go-to-do/auth"
-	"go-to-do/config"
-	"go-to-do/handlers"
-	"go-to-do/models"
-	"go-to-do/repository"
-	"go-to-do/websocket"
+	"netlink/auth"
+	"netlink/config"
+	"netlink/handlers"
+	"netlink/middleware"
+	"netlink/models"
+	"netlink/repository"
+	"netlink/websocket"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -90,15 +91,16 @@ func main() {
 	go hub.Run()
 	fmt.Println("✅ WebSocket hub started")
 
-	// Initialize services
-	authService := auth.NewAuthService(userRepo, sessionRepo)
-
-	// Initialize handlers
-	authHandler := handlers.NewAuthHandler(authService)
-	taskHandler := handlers.NewTaskHandler(taskRepo, authService)
-	noteHandler := handlers.NewNoteHandler(noteRepo, authService)
-	chatHandler := handlers.NewChatHandler(chatRepo, userRepo, authService, hub)
-	voiceHandler := handlers.NewVoiceHandler(chatRepo, userRepo, authService)
+	// Periodic session cleanup — remove expired sessions every hour
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := sessionRepo.CleanExpired(); err != nil {
+				log.Printf("Session cleanup error: %v", err)
+			}
+		}
+	}()
 
 	// Build allowed origins set from ALLOWED_ORIGINS env var
 	allowedOrigins := map[string]bool{
@@ -113,6 +115,19 @@ func main() {
 			}
 		}
 	}
+
+	// Initialize services
+	authService := auth.NewAuthService(userRepo, sessionRepo)
+
+	// Initialize rate limiter: 20 requests per minute for auth endpoints
+	authLimiter := middleware.NewRateLimiter(20, 1*time.Minute)
+
+	// Initialize handlers
+	authHandler := handlers.NewAuthHandler(authService)
+	taskHandler := handlers.NewTaskHandler(taskRepo, authService)
+	noteHandler := handlers.NewNoteHandler(noteRepo, authService)
+	chatHandler := handlers.NewChatHandler(chatRepo, userRepo, authService, hub, allowedOrigins)
+	voiceHandler := handlers.NewVoiceHandler(chatRepo, userRepo, authService)
 
 	// CORS middleware for API routes
 	corsMiddleware := func(next http.HandlerFunc) http.HandlerFunc {
@@ -151,15 +166,15 @@ func main() {
 
 	// ============ API Routes ============
 
-	// Auth API
+	// Auth API (rate-limited to prevent brute force)
 	http.HandleFunc("/api/auth/me", corsMiddleware(authHandler.Me))
-	http.HandleFunc("/api/auth/login", corsMiddleware(authHandler.APILogin))
-	http.HandleFunc("/api/auth/register", corsMiddleware(authHandler.APIRegister))
+	http.HandleFunc("/api/auth/login", corsMiddleware(authLimiter.Middleware(authHandler.APILogin)))
+	http.HandleFunc("/api/auth/register", corsMiddleware(authLimiter.Middleware(authHandler.APIRegister)))
 	http.HandleFunc("/api/auth/logout", corsMiddleware(authHandler.APILogout))
-	http.HandleFunc("/api/auth/forgot-password", corsMiddleware(authHandler.APIForgotPassword))
-	http.HandleFunc("/api/auth/reset-password", corsMiddleware(authHandler.APIResetPassword))
+	http.HandleFunc("/api/auth/forgot-password", corsMiddleware(authLimiter.Middleware(authHandler.APIForgotPassword)))
+	http.HandleFunc("/api/auth/reset-password", corsMiddleware(authLimiter.Middleware(authHandler.APIResetPassword)))
 	http.HandleFunc("/api/auth/verify", corsMiddleware(authHandler.APIVerify))
-	http.HandleFunc("/api/test-email", corsMiddleware(authHandler.TestEmail))
+	http.HandleFunc("/api/test-email", corsMiddleware(authLimiter.Middleware(authHandler.TestEmail)))
 
 	// Tasks API
 	http.HandleFunc("/api/tasks", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
@@ -169,7 +184,7 @@ func main() {
 		case "POST":
 			taskHandler.APICreate(w, r)
 		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			middleware.JSONMethodNotAllowed(w)
 		}
 	}))
 	http.HandleFunc("/api/tasks/toggle", corsMiddleware(taskHandler.APIToggle))
@@ -183,7 +198,7 @@ func main() {
 		case "POST":
 			noteHandler.Create(w, r)
 		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			middleware.JSONMethodNotAllowed(w)
 		}
 	}))
 	http.HandleFunc("/api/notes/", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
@@ -195,7 +210,7 @@ func main() {
 		case "DELETE":
 			noteHandler.Delete(w, r)
 		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			middleware.JSONMethodNotAllowed(w)
 		}
 	}))
 	http.HandleFunc("/api/notes/pin", corsMiddleware(noteHandler.TogglePin))
@@ -205,7 +220,7 @@ func main() {
 		if r.Method == "GET" {
 			chatHandler.ListConversations(w, r)
 		} else {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			middleware.JSONMethodNotAllowed(w)
 		}
 	}))
 	http.HandleFunc("/api/conversations/direct", corsMiddleware(chatHandler.CreateDirectChat))
@@ -217,7 +232,7 @@ func main() {
 		case "POST":
 			chatHandler.SendMessage(w, r)
 		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			middleware.JSONMethodNotAllowed(w)
 		}
 	}))
 	http.HandleFunc("/api/conversations/messages/edit", corsMiddleware(chatHandler.EditMessage))
@@ -232,7 +247,7 @@ func main() {
 		case "DELETE":
 			chatHandler.RemoveReaction(w, r)
 		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			middleware.JSONMethodNotAllowed(w)
 		}
 	}))
 	http.HandleFunc("/api/messages/forward", corsMiddleware(chatHandler.ForwardMessage))
