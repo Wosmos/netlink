@@ -267,8 +267,6 @@ export default function ConversationPage() {
       formData.append('duration', duration.toString());
       formData.append('waveform', JSON.stringify(waveform));
 
-      console.log('Uploading voice message...', { duration, waveformLength: waveform.length, blobSize: audioBlob.size });
-
       const uploadRes = await fetch(`${API_URL}/api/voice/upload`, {
         method: 'POST',
         credentials: 'include',
@@ -284,7 +282,6 @@ export default function ConversationPage() {
       }
 
       const uploadData = await uploadRes.json();
-      console.log('Upload successful:', uploadData);
 
       if (!uploadData.success) {
         alert('Failed to upload voice message');
@@ -301,7 +298,6 @@ export default function ConversationPage() {
       });
 
       if (res.success) {
-        console.log('Voice message sent successfully');
         setShowVoiceRecorder(false);
       } else {
         alert('Failed to send voice message');
@@ -380,7 +376,6 @@ export default function ConversationPage() {
   }
 
   function formatTime(dateStr: string) {
-    console.log(dateStr, 'dateStr')
     // Server sends UTC timestamps with 'Z' suffix - browser converts to local time
     return new Date(dateStr).toLocaleString([], { 
       hour: '2-digit', 
@@ -504,12 +499,6 @@ export default function ConversationPage() {
                           </div>
                         ) : msg.type === 'voice' && msg.voice_file_path ? (
                           <>
-                            {console.log('Rendering voice message:', { 
-                              id: msg.id, 
-                              path: msg.voice_file_path, 
-                              duration: msg.voice_duration,
-                              waveformLength: msg.voice_waveform?.length 
-                            })}
                             <VoicePlayer
                               audioUrl={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/api/voice/download?path=${encodeURIComponent(msg.voice_file_path)}`}
                               duration={msg.voice_duration || 0}
