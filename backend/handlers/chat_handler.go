@@ -215,10 +215,10 @@ func (h *ChatHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Name == "" {
+	if req.Name == "" || len(req.Name) > 100 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Group name required"})
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Group name required (max 100 chars)"})
 		return
 	}
 
@@ -338,10 +338,10 @@ func (h *ChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Content == "" {
+	if req.Content == "" || len(req.Content) > 10000 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Message content required"})
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Message content required (max 10000 chars)"})
 		return
 	}
 
@@ -431,10 +431,10 @@ func (h *ChatHandler) EditMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Content == "" {
+	if req.Content == "" || len(req.Content) > 10000 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Message content required"})
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Message content required (max 10000 chars)"})
 		return
 	}
 
@@ -791,10 +791,10 @@ func (h *ChatHandler) ForwardMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(req.TargetConvIDs) == 0 {
+	if len(req.TargetConvIDs) == 0 || len(req.TargetConvIDs) > 20 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Target conversations required"})
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Provide 1-20 target conversations"})
 		return
 	}
 

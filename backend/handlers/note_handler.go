@@ -95,6 +95,15 @@ func (h *NoteHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(req.Title) > 500 {
+		middleware.JSONError(w, "Title too long (max 500 chars)", http.StatusBadRequest)
+		return
+	}
+	if len(req.Content) > 50000 {
+		middleware.JSONError(w, "Content too long (max 50000 chars)", http.StatusBadRequest)
+		return
+	}
+
 	if req.Color == "" {
 		req.Color = "#ffffff"
 	}
@@ -158,6 +167,15 @@ func (h *NoteHandler) Update(w http.ResponseWriter, r *http.Request) {
 	var req UpdateNoteRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		middleware.JSONError(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.Title) > 500 {
+		middleware.JSONError(w, "Title too long (max 500 chars)", http.StatusBadRequest)
+		return
+	}
+	if len(req.Content) > 50000 {
+		middleware.JSONError(w, "Content too long (max 50000 chars)", http.StatusBadRequest)
 		return
 	}
 

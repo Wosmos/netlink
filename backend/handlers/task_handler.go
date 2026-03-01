@@ -136,10 +136,10 @@ func (h *TaskHandler) APICreate(w http.ResponseWriter, r *http.Request) {
 		Text           string `json:"text"`
 		ConversationID *int   `json:"conversation_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Text == "" {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Text == "" || len(req.Text) > 5000 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Text required"})
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Text required (max 5000 chars)"})
 		return
 	}
 

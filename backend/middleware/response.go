@@ -61,3 +61,12 @@ func MaxBodyReader(r *http.Request, limit int64) {
 func LimitedBody(body io.ReadCloser, maxBytes int64) io.ReadCloser {
 	return http.MaxBytesReader(nil, body, maxBytes)
 }
+
+// LimitBody wraps a handler with a request body size limit.
+// Use this on JSON API endpoints to prevent memory exhaustion from oversized payloads.
+func LimitBody(maxBytes int64, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+		next(w, r)
+	}
+}

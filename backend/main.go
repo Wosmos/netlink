@@ -166,15 +166,20 @@ func main() {
 
 	// ============ API Routes ============
 
+	// Body size limit for JSON endpoints (1 MB)
+	jsonLimit := func(next http.HandlerFunc) http.HandlerFunc {
+		return middleware.LimitBody(1<<20, next)
+	}
+
 	// Auth API (rate-limited to prevent brute force)
 	http.HandleFunc("/api/auth/me", corsMiddleware(authHandler.Me))
-	http.HandleFunc("/api/auth/login", corsMiddleware(authLimiter.Middleware(authHandler.APILogin)))
-	http.HandleFunc("/api/auth/register", corsMiddleware(authLimiter.Middleware(authHandler.APIRegister)))
+	http.HandleFunc("/api/auth/login", corsMiddleware(authLimiter.Middleware(jsonLimit(authHandler.APILogin))))
+	http.HandleFunc("/api/auth/register", corsMiddleware(authLimiter.Middleware(jsonLimit(authHandler.APIRegister))))
 	http.HandleFunc("/api/auth/logout", corsMiddleware(authHandler.APILogout))
-	http.HandleFunc("/api/auth/forgot-password", corsMiddleware(authLimiter.Middleware(authHandler.APIForgotPassword)))
-	http.HandleFunc("/api/auth/reset-password", corsMiddleware(authLimiter.Middleware(authHandler.APIResetPassword)))
+	http.HandleFunc("/api/auth/forgot-password", corsMiddleware(authLimiter.Middleware(jsonLimit(authHandler.APIForgotPassword))))
+	http.HandleFunc("/api/auth/reset-password", corsMiddleware(authLimiter.Middleware(jsonLimit(authHandler.APIResetPassword))))
 	http.HandleFunc("/api/auth/verify", corsMiddleware(authHandler.APIVerify))
-	http.HandleFunc("/api/test-email", corsMiddleware(authLimiter.Middleware(authHandler.TestEmail)))
+	http.HandleFunc("/api/test-email", corsMiddleware(authLimiter.Middleware(jsonLimit(authHandler.TestEmail))))
 
 	// Tasks API
 	http.HandleFunc("/api/tasks", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
@@ -182,7 +187,7 @@ func main() {
 		case "GET":
 			taskHandler.APIList(w, r)
 		case "POST":
-			taskHandler.APICreate(w, r)
+			jsonLimit(taskHandler.APICreate)(w, r)
 		default:
 			middleware.JSONMethodNotAllowed(w)
 		}
@@ -196,7 +201,7 @@ func main() {
 		case "GET":
 			noteHandler.List(w, r)
 		case "POST":
-			noteHandler.Create(w, r)
+			jsonLimit(noteHandler.Create)(w, r)
 		default:
 			middleware.JSONMethodNotAllowed(w)
 		}
@@ -206,7 +211,7 @@ func main() {
 		case "GET":
 			noteHandler.Get(w, r)
 		case "PUT":
-			noteHandler.Update(w, r)
+			jsonLimit(noteHandler.Update)(w, r)
 		case "DELETE":
 			noteHandler.Delete(w, r)
 		default:
@@ -223,19 +228,19 @@ func main() {
 			middleware.JSONMethodNotAllowed(w)
 		}
 	}))
-	http.HandleFunc("/api/conversations/direct", corsMiddleware(chatHandler.CreateDirectChat))
-	http.HandleFunc("/api/conversations/group", corsMiddleware(chatHandler.CreateGroup))
+	http.HandleFunc("/api/conversations/direct", corsMiddleware(jsonLimit(chatHandler.CreateDirectChat)))
+	http.HandleFunc("/api/conversations/group", corsMiddleware(jsonLimit(chatHandler.CreateGroup)))
 	http.HandleFunc("/api/conversations/messages", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case "GET":
 			chatHandler.GetMessages(w, r)
 		case "POST":
-			chatHandler.SendMessage(w, r)
+			jsonLimit(chatHandler.SendMessage)(w, r)
 		default:
 			middleware.JSONMethodNotAllowed(w)
 		}
 	}))
-	http.HandleFunc("/api/conversations/messages/edit", corsMiddleware(chatHandler.EditMessage))
+	http.HandleFunc("/api/conversations/messages/edit", corsMiddleware(jsonLimit(chatHandler.EditMessage)))
 	http.HandleFunc("/api/conversations/read", corsMiddleware(chatHandler.MarkAsRead))
 	http.HandleFunc("/api/conversations/typing", corsMiddleware(chatHandler.SendTyping))
 
@@ -243,14 +248,14 @@ func main() {
 	http.HandleFunc("/api/messages/react", corsMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case "POST":
-			chatHandler.ReactToMessage(w, r)
+			jsonLimit(chatHandler.ReactToMessage)(w, r)
 		case "DELETE":
 			chatHandler.RemoveReaction(w, r)
 		default:
 			middleware.JSONMethodNotAllowed(w)
 		}
 	}))
-	http.HandleFunc("/api/messages/forward", corsMiddleware(chatHandler.ForwardMessage))
+	http.HandleFunc("/api/messages/forward", corsMiddleware(jsonLimit(chatHandler.ForwardMessage)))
 	http.HandleFunc("/api/messages/delete", corsMiddleware(chatHandler.DeleteMessage))
 	http.HandleFunc("/api/conversations/delete", corsMiddleware(chatHandler.DeleteConversation))
 
