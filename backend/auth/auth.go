@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"regexp"
@@ -76,20 +77,14 @@ func (s *AuthService) Register(email, password string, name, phone *string) erro
 	}
 	_, err = s.userRepo.Create(email, hash, token, name, phone)
 	if err == nil {
-		// Send verification email using Resend
 		if emailErr := s.emailService.SendVerificationEmail(email, token); emailErr != nil {
-			fmt.Printf("Failed to send verification email: %v\n", emailErr)
-			// Check if it's a Resend restriction error
+			log.Printf("Failed to send verification email to %s: %v", email, emailErr)
 			if strings.Contains(emailErr.Error(), "403") || strings.Contains(emailErr.Error(), "422") {
-				fmt.Printf("⚠️  Email sending restricted. This is likely because:\n")
-				fmt.Printf("   - You're on Resend's free tier which only allows sending to verified emails\n")
-				fmt.Printf("   - The recipient email (%s) is not verified in your Resend account\n", email)
-				fmt.Printf("   - To send to any email, upgrade your Resend plan\n")
+				log.Printf("Email sending restricted — likely Resend free tier limitation for %s", email)
 			}
-			// Still print to console as fallback
-			fmt.Printf("[FALLBACK EMAIL] To: %s, Verify: http://localhost:3000/verify?token=%s\n", email, token)
+			log.Printf("[FALLBACK] Verify link: /verify?token=%s", token)
 		} else {
-			fmt.Printf("✅ Verification email sent successfully to: %s\n", email)
+			log.Printf("Verification email sent to %s", email)
 		}
 	}
 	return err
@@ -118,20 +113,14 @@ func (s *AuthService) ForgotPassword(email string) error {
 	expires := time.Now().Add(1 * time.Hour)
 	err = s.userRepo.SetResetToken(user.ID, &token, &expires)
 	if err == nil {
-		// Send password reset email using Resend
 		if emailErr := s.emailService.SendPasswordResetEmail(email, token); emailErr != nil {
-			fmt.Printf("Failed to send password reset email: %v\n", emailErr)
-			// Check if it's a Resend restriction error
+			log.Printf("Failed to send password reset email to %s: %v", email, emailErr)
 			if strings.Contains(emailErr.Error(), "403") || strings.Contains(emailErr.Error(), "422") {
-				fmt.Printf("⚠️  Email sending restricted. This is likely because:\n")
-				fmt.Printf("   - You're on Resend's free tier which only allows sending to verified emails\n")
-				fmt.Printf("   - The recipient email (%s) is not verified in your Resend account\n", email)
-				fmt.Printf("   - To send to any email, upgrade your Resend plan\n")
+				log.Printf("Email sending restricted — likely Resend free tier limitation for %s", email)
 			}
-			// Still print to console as fallback
-			fmt.Printf("[FALLBACK EMAIL] To: %s, Reset: http://localhost:3000/reset-password?token=%s\n", email, token)
+			log.Printf("[FALLBACK] Reset link: /reset-password?token=%s", token)
 		} else {
-			fmt.Printf("✅ Password reset email sent successfully to: %s\n", email)
+			log.Printf("Password reset email sent to %s", email)
 		}
 	}
 	return err
