@@ -22,13 +22,16 @@ const getDevelopmentIP = () => {
 
 const DEVELOPMENT_IP = getDevelopmentIP();
 
+// Replace with your Railway deployment URL after deploying backend
+const PRODUCTION_API = "https://your-backend.up.railway.app";
+
 export const API_CONFIG = {
   BASE_URL: __DEV__
     ? `http://${DEVELOPMENT_IP}:8080`
-    : "https://your-api-domain.com", // Production
+    : PRODUCTION_API,
   WS_URL: __DEV__
     ? `ws://${DEVELOPMENT_IP}:8080/ws`
-    : "wss://your-api-domain.com/ws", // Production WebSocket
+    : PRODUCTION_API.replace("https://", "wss://") + "/ws",
   TIMEOUT: 30000, // 30 seconds
 } as const;
 

@@ -16,11 +16,12 @@ export default function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) 
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const mimeTypeRef = useRef<string>('audio/webm;codecs=opus');
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const animationFrameRef = useRef<number>();
+  const animationFrameRef = useRef<number | undefined>(undefined);
   const startTimeRef = useRef<number>(0);
-  const timerRef = useRef<NodeJS.Timeout>();
+  const timerRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   const MAX_DURATION = 600; // 10 minutes
 
@@ -44,29 +45,33 @@ export default function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) 
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
-          sampleRate: 48000,
           channelCount: 1,
         },
       });
 
-      // Setup audio context for waveform
-      audioContextRef.current = new AudioContext({ sampleRate: 48000 });
+      // Setup audio context for waveform (use default sample rate to match device)
+      audioContextRef.current = new AudioContext();
       const source = audioContextRef.current.createMediaStreamSource(stream);
       analyserRef.current = audioContextRef.current.createAnalyser();
       analyserRef.current.fftSize = 2048;
       analyserRef.current.smoothingTimeConstant = 0.8;
       source.connect(analyserRef.current);
 
-      // Setup MediaRecorder with Opus codec
-      const options: MediaRecorderOptions = {
-        mimeType: 'audio/webm;codecs=opus',
-        audioBitsPerSecond: 32000,
-      };
-
-      // Fallback for Safari
-      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-        options.mimeType = 'audio/mp4';
+      // Setup MediaRecorder with best available codec
+      let mimeType = 'audio/webm;codecs=opus';
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'audio/webm';
       }
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'audio/mp4';
+      }
+
+      mimeTypeRef.current = mimeType;
+
+      const options: MediaRecorderOptions = {
+        mimeType,
+        audioBitsPerSecond: 128000,
+      };
 
       mediaRecorderRef.current = new MediaRecorder(stream, options);
       audioChunksRef.current = [];
@@ -77,7 +82,7 @@ export default function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) 
         }
       };
 
-      mediaRecorderRef.current.start(100); // Collect data every 100ms
+      mediaRecorderRef.current.start(); // Single clean blob on stop (no timeslice fragmentation)
       setIsRecording(true);
       startTimeRef.current = Date.now();
 
@@ -167,9 +172,19 @@ export default function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) 
   };
 
   const handleSend = () => {
+    if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') return;
+
+    // Capture values before async stop
+    const finalDuration = duration;
+    const finalWaveform = [...waveform];
+
+    // Wait for 'stop' event (fires after final ondataavailable) to ensure all data is collected
+    mediaRecorderRef.current.addEventListener('stop', () => {
+      const audioBlob = new Blob(audioChunksRef.current, { type: mimeTypeRef.current });
+      onSend(audioBlob, finalDuration, finalWaveform);
+    }, { once: true });
+
     stopRecording();
-    const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm;codecs=opus' });
-    onSend(audioBlob, duration, waveform);
   };
 
   const handleCancel = () => {

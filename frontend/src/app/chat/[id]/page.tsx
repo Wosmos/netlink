@@ -180,7 +180,7 @@ export default function ConversationPage() {
     
     const unsubReaction = wsClient.on('reaction', (event, data) => {
       if (event.conversation_id === convId && data) {
-        const reactionData = data as { message_id: number; reactions: ReactionSummary[] };
+        const reactionData = data as unknown as { message_id: number; reactions: ReactionSummary[] };
         setMessages(prev => prev.map(m => 
           m.id === reactionData.message_id 
             ? { ...m, reactions: reactionData.reactions } 
@@ -257,10 +257,13 @@ export default function ConversationPage() {
   async function handleVoiceSend(audioBlob: Blob, duration: number, waveform: number[]) {
     try {
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
-      
+
+      // Determine correct filename from blob MIME type
+      const ext = audioBlob.type.includes('mp4') ? '.m4a' : audioBlob.type.includes('mpeg') ? '.mp3' : '.webm';
+
       // Upload voice file
       const formData = new FormData();
-      formData.append('audio', audioBlob, 'voice.webm');
+      formData.append('audio', audioBlob, `voice${ext}`);
       formData.append('duration', duration.toString());
       formData.append('waveform', JSON.stringify(waveform));
 
@@ -357,9 +360,9 @@ export default function ConversationPage() {
   async function handleQuickReact(msg: Message, emoji: string) {
     const res = await api.reactToMessage(msg.id, emoji);
     if (res.success && res.data) {
-      // Update message reactions locally
-      setMessages(prev => prev.map(m => 
-        m.id === msg.id ? { ...m, reactions: res.data.reactions } : m
+      const { reactions } = res.data;
+      setMessages(prev => prev.map(m =>
+        m.id === msg.id ? { ...m, reactions } : m
       ));
     }
   }
@@ -430,17 +433,6 @@ export default function ConversationPage() {
 
   return (
     <div className="flex-1 flex flex-col bg-[#050505] text-gray-200 relative overflow-hidden font-sans">
-      <style jsx global>{`
-        @keyframes gridMove { 0% { transform: perspective(500px) rotateX(60deg) translateY(0); } 100% { transform: perspective(500px) rotateX(60deg) translateY(50px); } }
-        @keyframes fadePop { 0% { opacity: 0; transform: scale(0.98); } 100% { opacity: 1; transform: scale(1); } }
-        .scifi-grid { position: absolute; inset: -100% 0 0 0; background-image: linear-gradient(to right, rgba(6, 182, 212, 0.05) 1px, transparent 1px), linear-gradient(to bottom, rgba(6, 182, 212, 0.05) 1px, transparent 1px); background-size: 50px 50px; animation: gridMove 20s linear infinite; opacity: 0.3; z-index: 0; pointer-events: none; }
-        .msg-enter { animation: fadePop 0.2s ease-out forwards; }
-        .scifi-clip-sender { clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px); }
-        .scifi-clip-receiver { clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px)); }
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-      `}</style>
-
       <div className="scifi-grid"></div>
       <div className="absolute inset-0 z-10 pointer-events-none opacity-5 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] bg-repeat"></div>
 

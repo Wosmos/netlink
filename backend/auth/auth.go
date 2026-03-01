@@ -20,7 +20,7 @@ import (
 const (
 	SessionCookieName = "session_id"
 	SessionDuration   = 24 * time.Hour * 7
-	BcryptCost        = 8
+	BcryptCost        = 10
 )
 
 var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9.!#$%&'*+/=?^_{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$`)

@@ -17,7 +17,7 @@ export default function VoicePlayer({ audioUrl, duration, waveform = [], senderN
   const [isLoading, setIsLoading] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const progressIntervalRef = useRef<NodeJS.Timeout>();
+  const progressIntervalRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   useEffect(() => {
     audioRef.current = new Audio(audioUrl);

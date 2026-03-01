@@ -314,6 +314,58 @@ class APIClient {
     return this.request(`/api/notes/pin?id=${id}`, { method: 'POST' });
   }
 
+  // Voice upload endpoint
+  async uploadVoice(
+    audioBlob: Blob,
+    duration: number,
+    waveform: number[],
+    onProgress?: (progress: number) => void
+  ): Promise<APIResponse<{ file_path: string; file_size: number; duration: number; waveform: number[] }>> {
+    try {
+      const token = await getAuthToken();
+
+      const formData = new FormData();
+      // Use correct extension based on blob type
+      const ext = audioBlob.type.includes('mp4') || audioBlob.type.includes('m4a') || audioBlob.type.includes('aac')
+        ? '.m4a' : audioBlob.type.includes('mpeg') ? '.mp3' : '.webm';
+      formData.append('audio', audioBlob as any, `voice${ext}`);
+      formData.append('duration', duration.toString());
+      formData.append('waveform', JSON.stringify(waveform));
+
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+
+        xhr.upload.addEventListener('progress', (event) => {
+          if (event.lengthComputable && onProgress) {
+            const progress = (event.loaded / event.total) * 100;
+            onProgress(progress);
+          }
+        });
+
+        xhr.addEventListener('load', () => {
+          try {
+            const response = JSON.parse(xhr.responseText);
+            resolve(response);
+          } catch {
+            resolve({ success: xhr.status === 200, message: xhr.responseText });
+          }
+        });
+
+        xhr.addEventListener('error', () => {
+          reject({ success: false, error: 'Voice upload failed' });
+        });
+
+        xhr.open('POST', `${this.baseURL}/api/voice/upload`);
+        if (token) {
+          xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        }
+        xhr.send(formData);
+      });
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  }
+
   // File upload endpoint
   async uploadFile(
     file: FormData,
@@ -321,10 +373,10 @@ class APIClient {
   ): Promise<APIResponse<{ file_path: string; file_name: string; file_size: number }>> {
     try {
       const token = await getAuthToken();
-      
+
       return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        
+
         xhr.upload.addEventListener('progress', (event) => {
           if (event.lengthComputable && onProgress) {
             const progress = (event.loaded / event.total) * 100;

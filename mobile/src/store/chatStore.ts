@@ -262,22 +262,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
     waveform: number[],
   ) => {
     try {
-      // Upload audio file first
-      const formData = new FormData();
-      formData.append("file", audioBlob as any, "voice.webm");
-
-      const uploadResponse = await api.uploadFile(formData);
+      // Upload audio file to voice endpoint
+      const uploadResponse = await api.uploadVoice(audioBlob, duration, waveform);
 
       if (uploadResponse.success && uploadResponse.data) {
-        // Send voice message
-        const voiceData = {
+        // Send voice message with voice metadata
+        const response = await api.sendMessage(convId, "Voice message", "voice", undefined, {
           voice_file_path: uploadResponse.data.file_path,
-          voice_duration: duration,
-          voice_waveform: waveform,
+          voice_duration: uploadResponse.data.duration,
+          voice_waveform: uploadResponse.data.waveform,
           voice_file_size: uploadResponse.data.file_size,
-        };
+        });
 
-        await get().sendMessage(convId, "Voice message", "voice", undefined);
+        if (!response.success) {
+          set({ error: response.error || "Failed to send voice message" });
+        }
       } else {
         set({
           error: uploadResponse.error || "Failed to upload voice message",

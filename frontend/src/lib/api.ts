@@ -187,7 +187,7 @@ export const api = {
   
   // Message reactions
   reactToMessage: async (msgId: number, emoji: string, isCustom = false, customUrl = '', toggle = true) => {
-    return request(`/api/messages/react?msg_id=${msgId}`, {
+    return request<{ reactions: ReactionSummary[] }>(`/api/messages/react?msg_id=${msgId}`, {
       method: 'POST',
       body: JSON.stringify({ emoji, is_custom: isCustom, custom_url: customUrl, toggle }),
     });

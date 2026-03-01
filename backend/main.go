@@ -7,7 +7,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"runtime"
+	"strings"
+	"syscall"
 	"time"
 
 	"go-to-do/auth"
@@ -97,14 +100,27 @@ func main() {
 	chatHandler := handlers.NewChatHandler(chatRepo, userRepo, authService, hub)
 	voiceHandler := handlers.NewVoiceHandler(chatRepo, userRepo, authService)
 
+	// Build allowed origins set from ALLOWED_ORIGINS env var
+	allowedOrigins := map[string]bool{
+		"http://localhost:3000": true,
+		"http://localhost:8080": true,
+	}
+	if extra := os.Getenv("ALLOWED_ORIGINS"); extra != "" {
+		for _, o := range strings.Split(extra, ",") {
+			o = strings.TrimSpace(o)
+			if o != "" {
+				allowedOrigins[o] = true
+			}
+		}
+	}
+
 	// CORS middleware for API routes
 	corsMiddleware := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
-			if origin == "" {
-				origin = "http://localhost:3000"
+			if allowedOrigins[origin] {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
 			}
-			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
@@ -260,15 +276,49 @@ func main() {
 	// WebSocket
 	http.HandleFunc("/ws", chatHandler.HandleWebSocket)
 
+	// Health check
+	http.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+		if err := pool.Ping(r.Context()); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			json.NewEncoder(w).Encode(map[string]interface{}{"status": "unhealthy", "error": "database unreachable"})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"status": "healthy"})
+	})
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
 	server := &http.Server{
-		Addr:           ":8080",
+		Addr:           ":" + port,
 		ReadTimeout:    30 * time.Second,
 		WriteTimeout:   30 * time.Second,
 		IdleTimeout:    120 * time.Second,
 		MaxHeaderBytes: 1 << 20,
 	}
 
-	fmt.Println("🚀 Server starting on http://localhost:8080")
-	fmt.Println("📡 WebSocket available at ws://localhost:8080/ws")
-	log.Fatal(server.ListenAndServe())
+	// Graceful shutdown
+	go func() {
+		quit := make(chan os.Signal, 1)
+		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+		<-quit
+		fmt.Println("\nShutting down server...")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		if err := server.Shutdown(ctx); err != nil {
+			log.Printf("Server forced to shutdown: %v", err)
+		}
+	}()
+
+	fmt.Printf("🚀 Server starting on http://localhost:%s\n", port)
+	fmt.Printf("📡 WebSocket available at ws://localhost:%s/ws\n", port)
+	if err := server.ListenAndServe(); err != http.ErrServerClosed {
+		log.Fatal(err)
+	}
+	fmt.Println("Server stopped gracefully")
 }

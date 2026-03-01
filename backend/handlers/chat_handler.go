@@ -32,10 +32,10 @@ func NewChatHandler(repo *repository.ChatRepository, userRepo *repository.UserRe
 }
 
 var upgrader = ws.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
+	ReadBufferSize:  4096,
+	WriteBufferSize: 4096,
 	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins for development
+		return true // TODO: validate origins in production
 	},
 }
 
