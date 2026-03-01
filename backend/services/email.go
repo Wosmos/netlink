@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 )
@@ -31,11 +32,11 @@ func NewEmailService() *EmailService {
 	}
 
 	if useGmail {
-		fmt.Printf("📧 Email service initialized with Gmail SMTP\n")
+		log.Println("Email service initialized with Gmail SMTP")
 	} else if resendKey != "" {
-		fmt.Printf("📧 Email service initialized with Resend API\n")
+		log.Println("Email service initialized with Resend API")
 	} else {
-		fmt.Printf("⚠️  No email service configured (development mode)\n")
+		log.Println("WARNING: No email service configured (development mode)")
 	}
 
 	return service
@@ -49,26 +50,19 @@ type ResendRequest struct {
 }
 
 func (s *EmailService) Send(to, subject, html string) error {
-	fmt.Printf("🔍 Email Service Debug:\n")
-	fmt.Printf("  Using: %s\n", func() string {
+	log.Printf("Sending email to=%s subject=%q via=%s", to, subject, func() string {
 		if s.useGmail {
-			return "Gmail SMTP"
+			return "gmail"
 		}
-		return "Resend API"
+		return "resend"
 	}())
-	fmt.Printf("  From Email: %s\n", s.fromEmail)
-	fmt.Printf("  To: %s\n", to)
-	fmt.Printf("  Subject: %s\n", subject)
 
-	// Use Gmail SMTP if configured
 	if s.useGmail {
 		return s.gmailService.SendEmail(to, subject, html)
 	}
 
-	// Otherwise use Resend API
 	if s.apiKey == "" {
-		// Skip if no API key (development mode)
-		fmt.Printf("[EMAIL] To: %s, Subject: %s\n", to, subject)
+		log.Printf("[DEV] Skipped email to=%s subject=%q (no API key)", to, subject)
 		return nil
 	}
 
@@ -81,45 +75,33 @@ func (s *EmailService) Send(to, subject, html string) error {
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		fmt.Printf("❌ JSON Marshal error: %v\n", err)
-		return err
+		return fmt.Errorf("email marshal: %w", err)
 	}
-
-	fmt.Printf("📤 Request payload: %s\n", string(body))
 
 	req, err := http.NewRequest("POST", "https://api.resend.com/emails", bytes.NewBuffer(body))
 	if err != nil {
-		fmt.Printf("❌ HTTP request creation error: %v\n", err)
-		return err
+		return fmt.Errorf("email request: %w", err)
 	}
 
 	req.Header.Set("Authorization", "Bearer "+s.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	fmt.Printf("📤 Sending email via Resend API...\n")
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		fmt.Printf("❌ HTTP request failed: %v\n", err)
-		return err
+		return fmt.Errorf("email send: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// Read response body for debugging
 	respBody, _ := io.ReadAll(resp.Body)
-	fmt.Printf("📬 Resend API response: %d\n", resp.StatusCode)
-	fmt.Printf("📬 Response body: %s\n", string(respBody))
 
 	if resp.StatusCode >= 400 {
-		// Check if it's a common Resend restriction error
 		if resp.StatusCode == 403 || resp.StatusCode == 422 {
-			fmt.Printf("⚠️  This might be a Resend account limitation. Free tier only allows sending to verified email addresses.\n")
-			fmt.Printf("⚠️  To send to other emails, upgrade your Resend plan or verify the recipient email in your Resend dashboard.\n")
+			log.Printf("Resend restriction (free tier?) for %s: %s", to, string(respBody))
 		}
 		return fmt.Errorf("resend API error: %d - %s", resp.StatusCode, string(respBody))
 	}
 
-	fmt.Printf("✅ Email sent successfully!\n")
+	log.Printf("Email sent successfully to %s", to)
 	return nil
 }
 

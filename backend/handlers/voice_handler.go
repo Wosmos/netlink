@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -82,12 +83,11 @@ func (h *VoiceHandler) UploadVoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Log request
-	fmt.Printf("Voice upload request from user %d\n", userID)
+	log.Printf("Voice upload request from user %d", userID)
 
 	// Parse multipart form
 	if err := r.ParseMultipartForm(h.maxFileSize); err != nil {
-		fmt.Printf("Error parsing multipart form: %v\n", err)
+		log.Printf("Error parsing multipart form: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "File too large or invalid form data"})
@@ -97,7 +97,7 @@ func (h *VoiceHandler) UploadVoice(w http.ResponseWriter, r *http.Request) {
 	// Get file from form
 	file, header, err := r.FormFile("audio")
 	if err != nil {
-		fmt.Printf("Error getting audio file: %v\n", err)
+		log.Printf("Error getting audio file: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "No audio file provided"})
@@ -105,7 +105,7 @@ func (h *VoiceHandler) UploadVoice(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	fmt.Printf("Received audio file: %s, size: %d bytes\n", header.Filename, header.Size)
+	log.Printf("Received audio file: %s, size: %d bytes", header.Filename, header.Size)
 
 	// Get metadata
 	durationStr := r.FormValue("duration")
@@ -152,7 +152,7 @@ func (h *VoiceHandler) UploadVoice(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	fmt.Printf("Audio content-type: %s, using extension: %s\n", contentType, ext)
+	log.Printf("Audio content-type: %s, using extension: %s", contentType, ext)
 
 	// Generate unique filename with correct extension
 	timestamp := time.Now().Unix()

@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"log"
 	"net/smtp"
 	"os"
 	"strings"
@@ -25,13 +26,11 @@ func NewGmailSMTPService() *GmailSMTPService {
 
 func (s *GmailSMTPService) SendEmail(to, subject, htmlBody string) error {
 	if s.username == "" || s.password == "" {
-		fmt.Printf("⚠️  Gmail SMTP not configured. Set GMAIL_USERNAME and GMAIL_APP_PASSWORD in .env\n")
-		return fmt.Errorf("Gmail SMTP not configured")
+		return fmt.Errorf("Gmail SMTP not configured: set GMAIL_USERNAME and GMAIL_APP_PASSWORD")
 	}
 
 	from := s.username
-	
-	// Build email message
+
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("From: %s\r\n", from))
 	sb.WriteString(fmt.Sprintf("To: %s\r\n", to))
@@ -41,18 +40,13 @@ func (s *GmailSMTPService) SendEmail(to, subject, htmlBody string) error {
 	sb.WriteString("\r\n")
 	sb.WriteString(htmlBody)
 
-	// Authentication
 	auth := smtp.PlainAuth("", s.username, s.password, s.host)
-
-	// Send email
 	addr := fmt.Sprintf("%s:%s", s.host, s.port)
-	err := smtp.SendMail(addr, auth, from, []string{to}, []byte(sb.String()))
-	
-	if err != nil {
-		fmt.Printf("❌ Failed to send email via Gmail SMTP: %v\n", err)
-		return err
+
+	if err := smtp.SendMail(addr, auth, from, []string{to}, []byte(sb.String())); err != nil {
+		return fmt.Errorf("gmail SMTP send to %s: %w", to, err)
 	}
 
-	fmt.Printf("✅ Email sent successfully via Gmail SMTP to: %s\n", to)
+	log.Printf("Email sent via Gmail SMTP to %s", to)
 	return nil
 }
