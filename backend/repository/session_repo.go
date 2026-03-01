@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"go-to-do/models"
+	"netlink/models"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
