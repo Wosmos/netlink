@@ -30,7 +30,6 @@ class WebSocketClient {
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
-        console.log('WebSocket connected');
         this.reconnectAttempts = 0;
         this.isConnecting = false;
       };
@@ -50,7 +49,6 @@ class WebSocketClient {
       };
 
       this.ws.onclose = () => {
-        console.log('WebSocket disconnected');
         this.isConnecting = false;
         this.tryReconnect();
       };
