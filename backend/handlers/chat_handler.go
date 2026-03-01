@@ -7,36 +7,32 @@ import (
 	"strconv"
 	"time"
 
-	"go-to-do/auth"
-	"go-to-do/models"
-	"go-to-do/repository"
-	"go-to-do/websocket"
+	"netlink/models"
+	"netlink/websocket"
 
 	ws "github.com/gorilla/websocket"
 )
 
 type ChatHandler struct {
-	repo        *repository.ChatRepository
-	userRepo    *repository.UserRepository
-	authService *auth.AuthService
-	hub         *websocket.Hub
+	repo           ChatRepoInterface
+	userRepo       UserRepoInterface
+	authService    AuthServiceInterface
+	hub            HubInterface
+	allowedOrigins map[string]bool
 }
 
-func NewChatHandler(repo *repository.ChatRepository, userRepo *repository.UserRepository, authService *auth.AuthService, hub *websocket.Hub) *ChatHandler {
-	return &ChatHandler{
-		repo:        repo,
-		userRepo:    userRepo,
-		authService: authService,
-		hub:         hub,
+func NewChatHandler(repo ChatRepoInterface, userRepo UserRepoInterface, authService AuthServiceInterface, hub HubInterface, allowedOrigins ...map[string]bool) *ChatHandler {
+	origins := map[string]bool{}
+	if len(allowedOrigins) > 0 {
+		origins = allowedOrigins[0]
 	}
-}
-
-var upgrader = ws.Upgrader{
-	ReadBufferSize:  4096,
-	WriteBufferSize: 4096,
-	CheckOrigin: func(r *http.Request) bool {
-		return true // TODO: validate origins in production
-	},
+	return &ChatHandler{
+		repo:           repo,
+		userRepo:       userRepo,
+		authService:    authService,
+		hub:            hub,
+		allowedOrigins: origins,
+	}
 }
 
 func (h *ChatHandler) requireAuth(w http.ResponseWriter, r *http.Request) int {
@@ -59,8 +55,22 @@ func (h *ChatHandler) RequireAuthPublic(w http.ResponseWriter, r *http.Request) 
 func (h *ChatHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	user, err := h.authService.GetUserFromRequest(r)
 	if err != nil || user == nil {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Unauthorized"})
 		return
+	}
+
+	upgrader := ws.Upgrader{
+		ReadBufferSize:  4096,
+		WriteBufferSize: 4096,
+		CheckOrigin: func(r *http.Request) bool {
+			origin := r.Header.Get("Origin")
+			if len(h.allowedOrigins) == 0 {
+				return true // dev mode fallback
+			}
+			return h.allowedOrigins[origin]
+		},
 	}
 
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -68,11 +78,17 @@ func (h *ChatHandler) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := websocket.NewClient(h.hub, conn, user.ID)
+	concreteHub, ok := h.hub.(*websocket.Hub)
+	if !ok {
+		return
+	}
+	client := websocket.NewClient(concreteHub, conn, user.ID)
 	h.hub.Register(client)
 
-	// Update last seen
-	h.repo.UpdateLastSeen(user.ID)
+	// Update last seen (best-effort, non-critical)
+	if err := h.repo.UpdateLastSeen(user.ID); err != nil {
+		log.Printf("Failed to update last seen for user %d: %v", user.ID, err)
+	}
 
 	go client.WritePump()
 	go client.ReadPump()
@@ -193,18 +209,24 @@ func (h *ChatHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 
 	var req CreateGroupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid request"})
 		return
 	}
 
 	if req.Name == "" {
-		http.Error(w, "Group name required", http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Group name required"})
 		return
 	}
 
 	conv, err := h.repo.CreateGroupConversation(req.Name, userID, req.MemberIDs)
 	if err != nil {
-		http.Error(w, "Failed to create group", http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to create group"})
 		return
 	}
 
@@ -453,12 +475,16 @@ func (h *ChatHandler) MarkAsRead(w http.ResponseWriter, r *http.Request) {
 	convIDStr := r.URL.Query().Get("id")
 	convID, err := strconv.Atoi(convIDStr)
 	if err != nil {
-		http.Error(w, "Invalid conversation ID", http.StatusBadRequest)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid conversation ID"})
 		return
 	}
 
 	if err := h.repo.MarkAsRead(convID, userID); err != nil {
-		http.Error(w, "Failed to mark as read", http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Failed to mark as read"})
 		return
 	}
 
@@ -593,16 +619,13 @@ func (h *ChatHandler) ReactToMessage(w http.ResponseWriter, r *http.Request) {
 	convID, err := h.repo.GetMessageConversationID(msgID, userID)
 	if err != nil {
 		// Try without user check (user might not be sender)
-		var tempConvID int
-		err2 := h.repo.GetPool().QueryRow(r.Context(),
-			`SELECT conversation_id FROM messages WHERE id = $1`, msgID).Scan(&tempConvID)
-		if err2 != nil {
+		convID, err = h.repo.GetConversationIDByMessageID(msgID)
+		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusNotFound)
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Message not found"})
 			return
 		}
-		convID = tempConvID
 	}
 
 	var added bool
@@ -682,9 +705,7 @@ func (h *ChatHandler) RemoveReaction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get conversation ID for broadcasting
-	var convID int
-	err = h.repo.GetPool().QueryRow(r.Context(),
-		`SELECT conversation_id FROM messages WHERE id = $1`, msgID).Scan(&convID)
+	convID, err := h.repo.GetConversationIDByMessageID(msgID)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
