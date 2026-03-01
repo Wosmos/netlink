@@ -2,10 +2,12 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"netlink/models"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -66,7 +68,7 @@ func (r *UserRepository) GetByEmail(email string) (*models.User, error) {
 		email,
 	).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.IsVerified, &user.VerificationToken, &user.ResetToken, &user.ResetTokenExpires, &user.CreatedAt)
 	if err != nil {
-		if err.Error() == "no rows in result set" {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
@@ -82,7 +84,7 @@ func (r *UserRepository) GetByID(id int) (*models.User, error) {
 		id,
 	).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.IsVerified, &user.VerificationToken, &user.ResetToken, &user.ResetTokenExpires, &user.CreatedAt)
 	if err != nil {
-		if err.Error() == "no rows in result set" {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
@@ -98,7 +100,7 @@ func (r *UserRepository) GetByVerificationToken(token string) (*models.User, err
 		token,
 	).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.IsVerified, &user.VerificationToken, &user.ResetToken, &user.ResetTokenExpires, &user.CreatedAt)
 	if err != nil {
-		if err.Error() == "no rows in result set" {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
@@ -114,7 +116,7 @@ func (r *UserRepository) GetByResetToken(token string) (*models.User, error) {
 		token,
 	).Scan(&user.ID, &user.Email, &user.PasswordHash, &user.IsVerified, &user.VerificationToken, &user.ResetToken, &user.ResetTokenExpires, &user.CreatedAt)
 	if err != nil {
-		if err.Error() == "no rows in result set" {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
@@ -158,7 +160,7 @@ func (r *UserRepository) GetByPhone(phone string) (*models.User, error) {
 		phone,
 	).Scan(&user.ID, &user.Email, &user.Phone, &user.Name, &user.PasswordHash, &user.IsVerified, &user.CreatedAt)
 	if err != nil {
-		if err.Error() == "no rows in result set" {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
