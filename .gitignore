@@ -1,6 +1,26 @@
 .agent/
 .env
+.env.local
+.env.*.local
 
-
-#Ignore vscode AI rules
+# VSCode AI rules
 .github\instructions\codacy.instructions.md
+
+# Node
+node_modules/
+
+# Build artifacts
+backend/server
+backend/server.exe
+backend/*.exe
+backend/uploads/
+
+# Next.js
+frontend/.next/
+
+# Expo
+mobile/.expo/
+
+# OS files
+.DS_Store
+Thumbs.db

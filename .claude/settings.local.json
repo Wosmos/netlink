@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc:*)",
+      "Bash(./node_modules/.bin/tsc:*)",
+      "Bash(ls:*)",
+      "Bash(go build:*)",
+      "Bash(go vet:*)",
+      "Bash(npx next dev)",
+      "Bash(bun run dev)",
+      "Bash(powershell -Command \"Stop-Process -Id 11552 -Force -ErrorAction SilentlyContinue; Stop-Process -Name node -Force -ErrorAction SilentlyContinue; Stop-Process -Name bun -Force -ErrorAction SilentlyContinue\")",
+      "Bash(bun run build:*)",
+      "Bash(vercel:*)",
+      "Bash(railway version:*)",
+      "Bash(railway:*)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(node_modules/.bin/tsc --version)",
+      "Bash(node_modules/.bin/tsc --noEmit --skipLibCheck)",
+      "Bash(node_modules/.bin/tsc --noEmit --skipLibCheck --module esnext --moduleResolution bundler --jsx react-native --target esnext --strict --baseUrl . --paths '{\"\"@/*\"\":[\"\"./src/*\"\"]}')",
+      "Bash(npx next lint)",
+      "Bash(bun run tsc --noEmit)"
+    ]
+  }
+}

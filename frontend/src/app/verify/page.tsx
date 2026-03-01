@@ -1,17 +1,17 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
-export default function VerifyPage() {
+function VerifyContent() {
   const searchParams = useSearchParams();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('');
 
   useEffect(() => {
     const token = searchParams.get('token');
-    
+
     const verifyToken = async () => {
       if (!token) {
         setStatus('error');
@@ -30,7 +30,7 @@ export default function VerifyPage() {
         });
 
         const data = await res.json();
-        
+
         if (data.success) {
           setStatus('success');
           setMessage(data.message || 'Email verified successfully!');
@@ -69,8 +69,8 @@ export default function VerifyPage() {
               </div>
               <h1 className="text-2xl font-bold text-green-400 mb-2">Email Verified!</h1>
               <p className="text-gray-400 mb-6">{message}</p>
-              <Link 
-                href="/login" 
+              <Link
+                href="/login"
                 className="inline-block w-full py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-medium rounded transition-colors"
               >
                 Continue to Login
@@ -88,14 +88,14 @@ export default function VerifyPage() {
               <h1 className="text-2xl font-bold text-red-400 mb-2">Verification Failed</h1>
               <p className="text-gray-400 mb-6">{message}</p>
               <div className="space-y-3">
-                <Link 
-                  href="/register" 
+                <Link
+                  href="/register"
                   className="block w-full py-3 bg-cyan-600 hover:bg-cyan-500 text-white font-medium rounded transition-colors"
                 >
                   Try Registering Again
                 </Link>
-                <Link 
-                  href="/login" 
+                <Link
+                  href="/login"
                   className="block text-cyan-400 hover:text-cyan-300 text-sm"
                 >
                   Back to Login
@@ -106,5 +106,17 @@ export default function VerifyPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function VerifyPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#050505] flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-500 mx-auto"></div>
+      </div>
+    }>
+      <VerifyContent />
+    </Suspense>
   );
 }

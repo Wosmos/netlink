@@ -8,11 +8,30 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"go-to-do/auth"
 	"go-to-do/repository"
 )
+
+// Maps content types to file extensions and back
+var mimeToExt = map[string]string{
+	"audio/webm":             ".webm",
+	"audio/webm;codecs=opus": ".webm",
+	"audio/mp4":              ".m4a",
+	"audio/mpeg":             ".mp3",
+	"audio/m4a":              ".m4a",
+	"audio/aac":              ".m4a",
+	"audio/x-m4a":            ".m4a",
+}
+
+var extToMime = map[string]string{
+	".webm": "audio/webm",
+	".m4a":  "audio/mp4",
+	".mp4":  "audio/mp4",
+	".mp3":  "audio/mpeg",
+}
 
 type VoiceHandler struct {
 	repo        *repository.ChatRepository
@@ -108,19 +127,36 @@ func (h *VoiceHandler) UploadVoice(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Validate file type
+	// Validate file type and determine extension
 	contentType := header.Header.Get("Content-Type")
-	if contentType != "audio/webm" && contentType != "audio/webm;codecs=opus" &&
-		contentType != "audio/mp4" && contentType != "audio/mpeg" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid audio format"})
-		return
+	// Normalize: strip parameters like charset but keep codecs for webm
+	baseType := strings.TrimSpace(strings.Split(contentType, ";")[0])
+
+	ext, ok := mimeToExt[contentType]
+	if !ok {
+		ext, ok = mimeToExt[baseType]
+	}
+	if !ok {
+		// Try to infer from filename extension (handles application/octet-stream, etc.)
+		origExt := strings.ToLower(filepath.Ext(header.Filename))
+		if _, known := extToMime[origExt]; known {
+			ext = origExt
+		} else if baseType == "application/octet-stream" || baseType == "" {
+			// Mobile apps often send octet-stream; default to m4a (most common mobile format)
+			ext = ".m4a"
+		} else {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Invalid audio format. Supported: webm, m4a, mp3, mp4"})
+			return
+		}
 	}
 
-	// Generate unique filename
+	fmt.Printf("Audio content-type: %s, using extension: %s\n", contentType, ext)
+
+	// Generate unique filename with correct extension
 	timestamp := time.Now().Unix()
-	filename := fmt.Sprintf("%d_%d.webm", userID, timestamp)
+	filename := fmt.Sprintf("%d_%d%s", userID, timestamp, ext)
 
 	// Create user directory
 	userDir := filepath.Join(h.uploadDir, strconv.Itoa(userID))
@@ -237,8 +273,15 @@ func (h *VoiceHandler) DownloadVoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Determine correct MIME type from file extension
+	fileExt := strings.ToLower(filepath.Ext(fullPath))
+	serveMime, ok := extToMime[fileExt]
+	if !ok {
+		serveMime = "audio/webm" // fallback
+	}
+
 	// Set headers for audio streaming
-	w.Header().Set("Content-Type", "audio/webm")
+	w.Header().Set("Content-Type", serveMime)
 	w.Header().Set("Content-Length", strconv.FormatInt(fileInfo.Size(), 10))
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Cache-Control", "public, max-age=86400") // Cache for 24 hours
@@ -284,7 +327,7 @@ func (h *VoiceHandler) DeleteVoice(w http.ResponseWriter, r *http.Request) {
 	// Security: Ensure user can only delete their own files
 	cleanPath := filepath.Clean(filePath)
 	userPrefix := strconv.Itoa(userID) + string(filepath.Separator)
-	if !filepath.HasPrefix(cleanPath, userPrefix) {
+	if !strings.HasPrefix(cleanPath, userPrefix) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "Access denied"})

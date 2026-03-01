@@ -53,57 +53,6 @@ export default function RegisterPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#050505] px-4 relative overflow-hidden font-sans selection:bg-cyan-500/30">
       
-      {/* --- CSS/ANIMATIONS --- */}
-      <style jsx global>{`
-        @keyframes gridMove {
-          0% { transform: perspective(500px) rotateX(60deg) translateY(0); }
-          100% { transform: perspective(500px) rotateX(60deg) translateY(50px); }
-        }
-        @keyframes scan {
-          0% { background-position: 0% 0%; }
-          100% { background-position: 0% 100%; }
-        }
-        @keyframes glitch-skew {
-          0% { transform: skew(0deg); }
-          20% { transform: skew(-2deg); }
-          40% { transform: skew(2deg); }
-          60% { transform: skew(-1deg); }
-          80% { transform: skew(1deg); }
-          100% { transform: skew(0deg); }
-        }
-        .scifi-grid {
-          position: absolute;
-          inset: -100% 0 0 0;
-          background-image: 
-            linear-gradient(to right, rgba(6, 182, 212, 0.1) 1px, transparent 1px),
-            linear-gradient(to bottom, rgba(6, 182, 212, 0.1) 1px, transparent 1px);
-          background-size: 60px 60px;
-          animation: gridMove 20s linear infinite;
-          opacity: 0.2;
-          z-index: 0;
-          pointer-events: none;
-        }
-        .clip-box {
-          clip-path: polygon(
-            0 0, 
-            100% 0, 
-            100% calc(100% - 20px), 
-            calc(100% - 20px) 100%, 
-            0 100%
-          );
-        }
-        .clip-btn {
-          clip-path: polygon(
-            15px 0, 
-            100% 0, 
-            100% calc(100% - 15px), 
-            calc(100% - 15px) 100%, 
-            0 100%, 
-            0 15px
-          );
-        }
-      `}</style>
-
       {/* Background Layer */}
       <div className="scifi-grid"></div>
       <div className="absolute inset-0 z-10 pointer-events-none opacity-5 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] bg-repeat"></div>
