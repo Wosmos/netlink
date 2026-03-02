@@ -1,7 +1,7 @@
 .agent/
-.env
-.env.local
-.env.*.local
+**/.env
+**/.env.local
+**/.env.*.local
 
 # VSCode AI rules
 .github\instructions\codacy.instructions.md
@@ -29,3 +29,6 @@ mobile/.expo/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Claude
+.claude/
