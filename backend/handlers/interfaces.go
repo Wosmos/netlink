@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"netlink/models"
+	"netlink/repository"
 	"netlink/websocket"
 )
 
@@ -32,7 +33,7 @@ type ChatRepoInterface interface {
 	GetConversationByID(convID, userID int) (*models.Conversation, error)
 	GetConversationMemberIDs(convID int) ([]int, error)
 	GetMessages(convID int, limit, offset int) ([]models.Message, error)
-	CreateMessage(convID, senderID int, msgType models.MessageType, content string, replyToID *int) (*models.Message, error)
+	CreateMessage(convID, senderID int, msgType models.MessageType, content string, replyToID *int, voice ...repository.CreateMessageParams) (*models.Message, error)
 	UpdateMessage(msgID, userID int, content string) (*models.Message, error)
 	MarkAsRead(convID, userID int) error
 	UpdateLastSeen(userID int) error

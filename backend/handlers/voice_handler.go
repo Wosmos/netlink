@@ -1,23 +1,19 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	"netlink/auth"
 	"netlink/middleware"
-	"netlink/repository"
+	"netlink/storage"
 )
 
-// Maps content types to file extensions and back
 var mimeToExt = map[string]string{
 	"audio/webm":             ".webm",
 	"audio/webm;codecs=opus": ".webm",
@@ -36,27 +32,20 @@ var extToMime = map[string]string{
 }
 
 type VoiceHandler struct {
-	repo        *repository.ChatRepository
-	userRepo    *repository.UserRepository
-	authService *auth.AuthService
-	uploadDir   string
+	repo        ChatRepoInterface
+	userRepo    UserRepoInterface
+	authService AuthServiceInterface
+	storage     *storage.SupabaseStorage
 	maxFileSize int64
 	maxDuration int
 }
 
-func NewVoiceHandler(repo *repository.ChatRepository, userRepo *repository.UserRepository, authService *auth.AuthService) *VoiceHandler {
-	uploadDir := os.Getenv("VOICE_UPLOAD_DIR")
-	if uploadDir == "" {
-		uploadDir = "./uploads/voice"
-	}
-
-	os.MkdirAll(uploadDir, 0755)
-
+func NewVoiceHandler(repo ChatRepoInterface, userRepo UserRepoInterface, authService AuthServiceInterface, store *storage.SupabaseStorage) *VoiceHandler {
 	return &VoiceHandler{
 		repo:        repo,
 		userRepo:    userRepo,
 		authService: authService,
-		uploadDir:   uploadDir,
+		storage:     store,
 		maxFileSize: 50 * 1024 * 1024, // 50MB max
 		maxDuration: 600,              // 10 minutes max
 	}
@@ -80,14 +69,12 @@ func (h *VoiceHandler) UploadVoice(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Voice upload request from user %d", userID)
 
-	// Parse multipart form
 	if err := r.ParseMultipartForm(h.maxFileSize); err != nil {
 		log.Printf("Error parsing multipart form: %v", err)
 		middleware.JSONError(w, "File too large or invalid form data", http.StatusBadRequest)
 		return
 	}
 
-	// Get file from form
 	file, header, err := r.FormFile("audio")
 	if err != nil {
 		log.Printf("Error getting audio file: %v", err)
@@ -98,7 +85,6 @@ func (h *VoiceHandler) UploadVoice(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Received audio file: %s, size: %d bytes", header.Filename, header.Size)
 
-	// Get metadata
 	durationStr := r.FormValue("duration")
 	duration, err := strconv.ParseFloat(durationStr, 64)
 	if err != nil || duration <= 0 || duration > float64(h.maxDuration) {
@@ -106,7 +92,6 @@ func (h *VoiceHandler) UploadVoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get waveform data (optional)
 	waveformStr := r.FormValue("waveform")
 	var waveform []float64
 	if waveformStr != "" {
@@ -115,7 +100,7 @@ func (h *VoiceHandler) UploadVoice(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Validate file type and determine extension
+	// Determine file extension from content type
 	contentType := header.Header.Get("Content-Type")
 	baseType := strings.TrimSpace(strings.Split(contentType, ";")[0])
 
@@ -124,10 +109,7 @@ func (h *VoiceHandler) UploadVoice(w http.ResponseWriter, r *http.Request) {
 		ext, ok = mimeToExt[baseType]
 	}
 	if !ok {
-		origExt := strings.ToLower(filepath.Ext(header.Filename))
-		if _, known := extToMime[origExt]; known {
-			ext = origExt
-		} else if baseType == "application/octet-stream" || baseType == "" {
+		if baseType == "application/octet-stream" || baseType == "" {
 			ext = ".m4a"
 		} else {
 			middleware.JSONError(w, "Invalid audio format. Supported: webm, m4a, mp3, mp4", http.StatusBadRequest)
@@ -135,48 +117,41 @@ func (h *VoiceHandler) UploadVoice(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Build the upload MIME for Supabase (use base type without codec params)
+	uploadMime := baseType
+	if uploadMime == "" || uploadMime == "application/octet-stream" {
+		if m, ok := extToMime[ext]; ok {
+			uploadMime = m
+		} else {
+			uploadMime = "audio/webm"
+		}
+	}
+
 	log.Printf("Audio content-type: %s, using extension: %s", contentType, ext)
 
-	// Generate unique filename with correct extension
+	// Upload to Supabase Storage
 	timestamp := time.Now().Unix()
-	filename := fmt.Sprintf("%d_%d%s", userID, timestamp, ext)
+	objectPath := fmt.Sprintf("voice/%d/%d%s", userID, timestamp, ext)
 
-	// Create user directory
-	userDir := filepath.Join(h.uploadDir, strconv.Itoa(userID))
-	if err := os.MkdirAll(userDir, 0755); err != nil {
-		middleware.JSONError(w, "Failed to create directory", http.StatusInternalServerError)
-		return
-	}
-
-	// Save file
-	filePath := filepath.Join(userDir, filename)
-
-	dst, err := os.Create(filePath)
+	ctx := context.Background()
+	_, err = h.storage.Upload(ctx, objectPath, file, uploadMime)
 	if err != nil {
-		middleware.JSONError(w, "Failed to save file", http.StatusInternalServerError)
-		return
-	}
-	defer dst.Close()
-
-	written, err := io.Copy(dst, file)
-	if err != nil {
-		os.Remove(filePath)
-		middleware.JSONError(w, "Failed to save file", http.StatusInternalServerError)
+		log.Printf("Supabase upload error: %v", err)
+		middleware.JSONError(w, "Failed to upload file", http.StatusInternalServerError)
 		return
 	}
 
-	// Return file info
-	relativePath := filepath.Join(strconv.Itoa(userID), filename)
+	log.Printf("Uploaded voice to Supabase: %s (%d bytes)", objectPath, header.Size)
 
 	middleware.JSONSuccess(w, map[string]interface{}{
-		"file_path": relativePath,
-		"file_size": written,
+		"file_path": objectPath,
+		"file_size": header.Size,
 		"duration":  duration,
 		"waveform":  waveform,
 	})
 }
 
-// GET /api/voice/download/:path
+// GET /api/voice/download?path=...
 func (h *VoiceHandler) DownloadVoice(w http.ResponseWriter, r *http.Request) {
 	userID := h.requireAuth(w, r)
 	if userID == 0 {
@@ -189,79 +164,27 @@ func (h *VoiceHandler) DownloadVoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Security: Prevent directory traversal
-	cleanPath := filepath.Clean(filePath)
-	if filepath.IsAbs(cleanPath) || strings.Contains(cleanPath, "..") {
+	// Security: reject directory traversal
+	if strings.Contains(filePath, "..") {
 		middleware.JSONError(w, "Invalid file path", http.StatusBadRequest)
 		return
 	}
 
-	fullPath := filepath.Join(h.uploadDir, cleanPath)
-
-	// Double-check: resolved path must be inside uploadDir
-	absUpload, _ := filepath.Abs(h.uploadDir)
-	absFull, _ := filepath.Abs(fullPath)
-	if !strings.HasPrefix(absFull, absUpload+string(filepath.Separator)) {
-		middleware.JSONError(w, "Invalid file path", http.StatusBadRequest)
-		return
-	}
-
-	// Check if file exists
-	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+	// Generate a signed URL (1 hour expiry)
+	ctx := context.Background()
+	signedURL, err := h.storage.SignedURL(ctx, filePath, 3600)
+	if err != nil {
+		log.Printf("Signed URL error for %s: %v", filePath, err)
 		middleware.JSONError(w, "File not found", http.StatusNotFound)
 		return
 	}
 
-	// Open file
-	file, err := os.Open(fullPath)
-	if err != nil {
-		middleware.JSONError(w, "Failed to open file", http.StatusInternalServerError)
-		return
-	}
-	defer file.Close()
-
-	// Get file info
-	fileInfo, err := file.Stat()
-	if err != nil {
-		middleware.JSONError(w, "Failed to get file info", http.StatusInternalServerError)
-		return
-	}
-
-	// Determine correct MIME type from file extension
-	fileExt := strings.ToLower(filepath.Ext(fullPath))
-	serveMime, ok := extToMime[fileExt]
-	if !ok {
-		serveMime = "audio/webm" // fallback
-	}
-
-	// Set headers for audio streaming
-	w.Header().Set("Content-Type", serveMime)
-	w.Header().Set("Content-Length", strconv.FormatInt(fileInfo.Size(), 10))
-	w.Header().Set("Accept-Ranges", "bytes")
-	w.Header().Set("Cache-Control", "public, max-age=86400")
-
-	// Support range requests for seeking
-	rangeHeader := r.Header.Get("Range")
-	if rangeHeader != "" {
-		var start, end int64
-		fmt.Sscanf(rangeHeader, "bytes=%d-%d", &start, &end)
-
-		if end == 0 || end >= fileInfo.Size() {
-			end = fileInfo.Size() - 1
-		}
-
-		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, fileInfo.Size()))
-		w.Header().Set("Content-Length", strconv.FormatInt(end-start+1, 10))
-		w.WriteHeader(http.StatusPartialContent)
-
-		file.Seek(start, 0)
-		io.CopyN(w, file, end-start+1)
-	} else {
-		io.Copy(w, file)
-	}
+	middleware.JSONSuccess(w, map[string]interface{}{
+		"url": signedURL,
+	})
 }
 
-// DELETE /api/voice/delete
+// DELETE /api/voice/delete?path=...
 func (h *VoiceHandler) DeleteVoice(w http.ResponseWriter, r *http.Request) {
 	userID := h.requireAuth(w, r)
 	if userID == 0 {
@@ -274,35 +197,22 @@ func (h *VoiceHandler) DeleteVoice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Security: Prevent directory traversal and ensure user owns the file
-	cleanPath := filepath.Clean(filePath)
-	if filepath.IsAbs(cleanPath) || strings.Contains(cleanPath, "..") {
+	// Security: reject directory traversal
+	if strings.Contains(filePath, "..") {
 		middleware.JSONError(w, "Invalid file path", http.StatusBadRequest)
 		return
 	}
 
-	userPrefix := strconv.Itoa(userID) + string(filepath.Separator)
-	if !strings.HasPrefix(cleanPath, userPrefix) {
+	// Verify user owns this voice file (path format: voice/{userID}/...)
+	expectedPrefix := fmt.Sprintf("voice/%d/", userID)
+	if !strings.HasPrefix(filePath, expectedPrefix) {
 		middleware.JSONError(w, "Access denied", http.StatusForbidden)
 		return
 	}
 
-	fullPath := filepath.Join(h.uploadDir, cleanPath)
-
-	// Double-check: resolved path must be inside uploadDir
-	absUpload, _ := filepath.Abs(h.uploadDir)
-	absFull, _ := filepath.Abs(fullPath)
-	if !strings.HasPrefix(absFull, absUpload+string(filepath.Separator)) {
-		middleware.JSONError(w, "Invalid file path", http.StatusBadRequest)
-		return
-	}
-
-	// Delete file
-	if err := os.Remove(fullPath); err != nil {
-		if os.IsNotExist(err) {
-			middleware.JSONError(w, "File not found", http.StatusNotFound)
-			return
-		}
+	ctx := context.Background()
+	if err := h.storage.Delete(ctx, filePath); err != nil {
+		log.Printf("Supabase delete error for %s: %v", filePath, err)
 		middleware.JSONError(w, "Failed to delete file", http.StatusInternalServerError)
 		return
 	}

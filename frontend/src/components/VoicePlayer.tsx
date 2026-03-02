@@ -18,25 +18,55 @@ export default function VoicePlayer({ audioUrl, duration, waveform = [], senderN
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const progressIntervalRef = useRef<NodeJS.Timeout | undefined>(undefined);
+  const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
 
+  // Resolve signed URL from the backend
   useEffect(() => {
-    audioRef.current = new Audio(audioUrl);
-    audioRef.current.playbackRate = playbackRate;
+    let cancelled = false;
 
-    audioRef.current.addEventListener('ended', handleEnded);
-    audioRef.current.addEventListener('loadstart', () => setIsLoading(true));
-    audioRef.current.addEventListener('canplay', () => setIsLoading(false));
+    const resolve = async () => {
+      setIsLoading(true);
+      try {
+        const res = await fetch(audioUrl, { credentials: 'include' });
+        const json = await res.json();
+        if (!cancelled && json.success && json.data?.url) {
+          setResolvedUrl(json.data.url);
+        } else if (!cancelled) {
+          // Fallback: maybe it's already a direct URL
+          setResolvedUrl(audioUrl);
+        }
+      } catch {
+        if (!cancelled) setResolvedUrl(audioUrl);
+      }
+    };
+
+    resolve();
+    return () => { cancelled = true; };
+  }, [audioUrl]);
+
+  // Create Audio element once we have the resolved URL
+  useEffect(() => {
+    if (!resolvedUrl) return;
+
+    const audio = new Audio(resolvedUrl);
+    audio.playbackRate = playbackRate;
+    audioRef.current = audio;
+
+    const onEnded = () => handleEnded();
+    const onCanPlay = () => setIsLoading(false);
+
+    audio.addEventListener('ended', onEnded);
+    audio.addEventListener('canplay', onCanPlay);
 
     return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.removeEventListener('ended', handleEnded);
-      }
+      audio.pause();
+      audio.removeEventListener('ended', onEnded);
+      audio.removeEventListener('canplay', onCanPlay);
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current);
       }
     };
-  }, [audioUrl]);
+  }, [resolvedUrl]);
 
   useEffect(() => {
     if (audioRef.current) {

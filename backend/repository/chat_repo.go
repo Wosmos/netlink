@@ -64,6 +64,12 @@ func (r *ChatRepository) InitSchema(ctx context.Context) error {
 	ALTER TABLE users ADD COLUMN IF NOT EXISTS name VARCHAR(100) DEFAULT '';
 	ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT;
 	ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
+
+	-- Voice message columns
+	ALTER TABLE messages ADD COLUMN IF NOT EXISTS voice_file_path TEXT;
+	ALTER TABLE messages ADD COLUMN IF NOT EXISTS voice_duration DOUBLE PRECISION;
+	ALTER TABLE messages ADD COLUMN IF NOT EXISTS voice_waveform DOUBLE PRECISION[];
+	ALTER TABLE messages ADD COLUMN IF NOT EXISTS voice_file_size BIGINT;
 	`
 	_, err := r.pool.Exec(ctx, schema)
 	return err
@@ -344,18 +350,41 @@ func (r *ChatRepository) GetConversationMemberIDs(convID int) ([]int, error) {
 
 // Message methods
 
-func (r *ChatRepository) CreateMessage(convID, senderID int, msgType models.MessageType, content string, replyToID *int) (*models.Message, error) {
+type CreateMessageParams struct {
+	VoiceFilePath string
+	VoiceDuration float64
+	VoiceWaveform []float64
+	VoiceFileSize int64
+}
+
+func (r *ChatRepository) CreateMessage(convID, senderID int, msgType models.MessageType, content string, replyToID *int, voice ...CreateMessageParams) (*models.Message, error) {
 	ctx := context.Background()
 
 	var msg models.Message
-	err := r.pool.QueryRow(ctx,
-		`INSERT INTO messages (conversation_id, sender_id, type, content, reply_to_id) 
-		 VALUES ($1, $2, $3, $4, $5) 
-		 RETURNING id, conversation_id, sender_id, type, content, reply_to_id, created_at, updated_at`,
-		convID, senderID, msgType, content, replyToID,
-	).Scan(&msg.ID, &msg.ConversationID, &msg.SenderID, &msg.Type, &msg.Content, &msg.ReplyToID, &msg.CreatedAt, &msg.UpdatedAt)
-	if err != nil {
-		return nil, err
+
+	if len(voice) > 0 && voice[0].VoiceFilePath != "" {
+		v := voice[0]
+		err := r.pool.QueryRow(ctx,
+			`INSERT INTO messages (conversation_id, sender_id, type, content, reply_to_id, voice_file_path, voice_duration, voice_waveform, voice_file_size)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			 RETURNING id, conversation_id, sender_id, type, content, reply_to_id, created_at, updated_at,
+			           COALESCE(voice_file_path, ''), COALESCE(voice_duration, 0), COALESCE(voice_waveform, ARRAY[]::double precision[]), COALESCE(voice_file_size, 0)`,
+			convID, senderID, msgType, content, replyToID, v.VoiceFilePath, v.VoiceDuration, v.VoiceWaveform, v.VoiceFileSize,
+		).Scan(&msg.ID, &msg.ConversationID, &msg.SenderID, &msg.Type, &msg.Content, &msg.ReplyToID, &msg.CreatedAt, &msg.UpdatedAt,
+			&msg.VoiceFilePath, &msg.VoiceDuration, &msg.VoiceWaveform, &msg.VoiceFileSize)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		err := r.pool.QueryRow(ctx,
+			`INSERT INTO messages (conversation_id, sender_id, type, content, reply_to_id)
+			 VALUES ($1, $2, $3, $4, $5)
+			 RETURNING id, conversation_id, sender_id, type, content, reply_to_id, created_at, updated_at`,
+			convID, senderID, msgType, content, replyToID,
+		).Scan(&msg.ID, &msg.ConversationID, &msg.SenderID, &msg.Type, &msg.Content, &msg.ReplyToID, &msg.CreatedAt, &msg.UpdatedAt)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Update conversation updated_at
@@ -368,6 +397,8 @@ func (r *ChatRepository) GetMessages(convID int, limit, offset int) ([]models.Me
 	rows, err := r.pool.Query(
 		context.Background(),
 		`SELECT m.id, m.conversation_id, m.sender_id, m.type, m.content, m.reply_to_id, m.created_at, m.updated_at,
+		        COALESCE(m.voice_file_path, ''), COALESCE(m.voice_duration, 0),
+		        COALESCE(m.voice_waveform, ARRAY[]::double precision[]), COALESCE(m.voice_file_size, 0),
 		        u.id, u.email, COALESCE(u.name, ''), COALESCE(u.avatar, '')
 		 FROM messages m
 		 JOIN users u ON m.sender_id = u.id
@@ -386,6 +417,7 @@ func (r *ChatRepository) GetMessages(convID int, limit, offset int) ([]models.Me
 		var m models.Message
 		var u models.User
 		if err := rows.Scan(&m.ID, &m.ConversationID, &m.SenderID, &m.Type, &m.Content, &m.ReplyToID, &m.CreatedAt, &m.UpdatedAt,
+			&m.VoiceFilePath, &m.VoiceDuration, &m.VoiceWaveform, &m.VoiceFileSize,
 			&u.ID, &u.Email, &u.Name, &u.Avatar); err != nil {
 			return nil, err
 		}

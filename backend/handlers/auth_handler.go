@@ -345,8 +345,8 @@ func (h *AuthHandler) APIForgotPassword(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := h.authService.ForgotPassword(email); err != nil {
-		log.Printf("Forgot password error: %v", err)
-		middleware.JSONError(w, "An error occurred", http.StatusInternalServerError)
+		log.Printf("Forgot password error for %s: %v", email, err)
+		middleware.JSONError(w, "Failed to send reset email. Please try again later.", http.StatusInternalServerError)
 		return
 	}
 

@@ -9,6 +9,7 @@ import (
 
 	"netlink/middleware"
 	"netlink/models"
+	"netlink/repository"
 	"netlink/websocket"
 
 	ws "github.com/gorilla/websocket"
@@ -307,18 +308,20 @@ func (h *ChatHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		msgType = models.MessageType(req.Type)
 	}
 
-	msg, err := h.repo.CreateMessage(convID, userID, msgType, req.Content, req.ReplyToID)
+	var voiceParams []repository.CreateMessageParams
+	if msgType == models.MessageTypeVoice && req.VoiceFilePath != "" {
+		voiceParams = append(voiceParams, repository.CreateMessageParams{
+			VoiceFilePath: req.VoiceFilePath,
+			VoiceDuration: req.VoiceDuration,
+			VoiceWaveform: req.VoiceWaveform,
+			VoiceFileSize: req.VoiceFileSize,
+		})
+	}
+
+	msg, err := h.repo.CreateMessage(convID, userID, msgType, req.Content, req.ReplyToID, voiceParams...)
 	if err != nil {
 		middleware.JSONError(w, "Failed to send message", http.StatusInternalServerError)
 		return
-	}
-
-	// Add voice data if this is a voice message
-	if msgType == models.MessageTypeVoice && req.VoiceFilePath != "" {
-		msg.VoiceFilePath = req.VoiceFilePath
-		msg.VoiceDuration = req.VoiceDuration
-		msg.VoiceWaveform = req.VoiceWaveform
-		msg.VoiceFileSize = req.VoiceFileSize
 	}
 
 	// Get sender info

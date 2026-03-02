@@ -18,6 +18,7 @@ import (
 	"netlink/middleware"
 	"netlink/models"
 	"netlink/repository"
+	"netlink/storage"
 	"netlink/websocket"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -126,7 +127,12 @@ func main() {
 	taskHandler := handlers.NewTaskHandler(taskRepo, authService)
 	noteHandler := handlers.NewNoteHandler(noteRepo, authService)
 	chatHandler := handlers.NewChatHandler(chatRepo, userRepo, authService, hub, allowedOrigins)
-	voiceHandler := handlers.NewVoiceHandler(chatRepo, userRepo, authService)
+	supabaseStorage := storage.NewSupabaseStorage(
+		os.Getenv("SUPABASE_URL"),
+		os.Getenv("SUPABASE_SERVICE_KEY"),
+		os.Getenv("SUPABASE_BUCKET"),
+	)
+	voiceHandler := handlers.NewVoiceHandler(chatRepo, userRepo, authService, supabaseStorage)
 
 	// CORS middleware for API routes
 	corsMiddleware := func(next http.HandlerFunc) http.HandlerFunc {

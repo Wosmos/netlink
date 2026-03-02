@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"netlink/models"
+	"netlink/repository"
 	"netlink/websocket"
 )
 
@@ -21,7 +22,7 @@ type mockChatRepo struct {
 	getConversationByIDFn        func(convID, userID int) (*models.Conversation, error)
 	getConversationMemberIDsFn   func(convID int) ([]int, error)
 	getMessagesFn                func(convID int, limit, offset int) ([]models.Message, error)
-	createMessageFn              func(convID, senderID int, msgType models.MessageType, content string, replyToID *int) (*models.Message, error)
+	createMessageFn              func(convID, senderID int, msgType models.MessageType, content string, replyToID *int, voice ...repository.CreateMessageParams) (*models.Message, error)
 	updateMessageFn              func(msgID, userID int, content string) (*models.Message, error)
 	markAsReadFn                 func(convID, userID int) error
 	updateLastSeenFn             func(userID int) error
@@ -80,9 +81,9 @@ func (m *mockChatRepo) GetMessages(convID int, limit, offset int) ([]models.Mess
 	return nil, nil
 }
 
-func (m *mockChatRepo) CreateMessage(convID, senderID int, msgType models.MessageType, content string, replyToID *int) (*models.Message, error) {
+func (m *mockChatRepo) CreateMessage(convID, senderID int, msgType models.MessageType, content string, replyToID *int, voice ...repository.CreateMessageParams) (*models.Message, error) {
 	if m.createMessageFn != nil {
-		return m.createMessageFn(convID, senderID, msgType, content, replyToID)
+		return m.createMessageFn(convID, senderID, msgType, content, replyToID, voice...)
 	}
 	return &models.Message{ID: 1, ConversationID: convID, SenderID: senderID, Content: content}, nil
 }
@@ -370,7 +371,7 @@ func TestSendMessage_Success(t *testing.T) {
 	}
 
 	chatRepo := &mockChatRepo{
-		createMessageFn: func(convID, senderID int, msgType models.MessageType, content string, replyToID *int) (*models.Message, error) {
+		createMessageFn: func(convID, senderID int, msgType models.MessageType, content string, replyToID *int, voice ...repository.CreateMessageParams) (*models.Message, error) {
 			if convID != 5 || senderID != 1 || content != "Hello!" {
 				t.Errorf("Unexpected args: convID=%d, senderID=%d, content=%q", convID, senderID, content)
 			}
