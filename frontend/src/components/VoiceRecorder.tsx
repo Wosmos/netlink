@@ -10,6 +10,7 @@ interface VoiceRecorderProps {
 export default function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(true);
   const [duration, setDuration] = useState(0);
   const [waveform, setWaveform] = useState<number[]>([]);
   const [volume, setVolume] = useState(0);
@@ -40,6 +41,8 @@ export default function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) 
 
   const startRecording = async () => {
     try {
+      setIsConnecting(true);
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -82,8 +85,9 @@ export default function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) 
         }
       };
 
-      mediaRecorderRef.current.start(); // Single clean blob on stop (no timeslice fragmentation)
+      mediaRecorderRef.current.start();
       setIsRecording(true);
+      setIsConnecting(false);
       startTimeRef.current = Date.now();
 
       // Start timer
@@ -174,17 +178,36 @@ export default function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) 
   const handleSend = () => {
     if (!mediaRecorderRef.current || mediaRecorderRef.current.state === 'inactive') return;
 
-    // Capture values before async stop
-    const finalDuration = duration;
+    const recorder = mediaRecorderRef.current;
+
+    // Calculate accurate duration from refs (state may lag behind)
+    const finalDuration = Math.max(1, Math.floor((Date.now() - startTimeRef.current) / 1000));
     const finalWaveform = [...waveform];
 
+    // Stop timer and visualization immediately
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = undefined;
+    }
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = undefined;
+    }
+
     // Wait for 'stop' event (fires after final ondataavailable) to ensure all data is collected
-    mediaRecorderRef.current.addEventListener('stop', () => {
+    // IMPORTANT: only stop stream tracks AFTER data is collected, not before
+    recorder.addEventListener('stop', () => {
+      recorder.stream.getTracks().forEach((track) => track.stop());
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close();
+      }
       const audioBlob = new Blob(audioChunksRef.current, { type: mimeTypeRef.current });
       onSend(audioBlob, finalDuration, finalWaveform);
     }, { once: true });
 
-    stopRecording();
+    // Trigger the stop - this will fire ondataavailable then 'stop' event
+    recorder.stop();
+    setIsRecording(false);
   };
 
   const handleCancel = () => {
@@ -209,8 +232,14 @@ export default function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) 
 
         {/* Waveform Visualization */}
         <div className="h-24 bg-[#050508] border border-cyan-900/30 rounded mb-6 p-2 flex items-center gap-0.5 overflow-hidden">
-          {waveform.length === 0 ? (
-            <div className="w-full text-center text-cyan-500/30 text-xs font-mono">Recording...</div>
+          {isConnecting ? (
+            <div className="w-full text-center text-cyan-500/50 text-xs font-mono animate-pulse">
+              Connecting to microphone...
+            </div>
+          ) : waveform.length === 0 ? (
+            <div className="w-full text-center text-emerald-400 text-xs font-mono animate-pulse">
+              Listening... speak now
+            </div>
           ) : (
             waveform.slice(-100).map((amplitude, i) => (
               <div
@@ -228,9 +257,12 @@ export default function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) 
         {/* Volume Indicator */}
         <div className="mb-6">
           <div className="flex items-center gap-2 mb-2">
-            <div className={`w-2 h-2 rounded-full ${isRecording && !isPaused ? 'bg-red-500 animate-pulse' : 'bg-gray-500'}`} />
+            <div className={`w-2 h-2 rounded-full ${
+              isConnecting ? 'bg-yellow-500 animate-pulse' :
+              isRecording && !isPaused ? 'bg-red-500 animate-pulse' : 'bg-gray-500'
+            }`} />
             <span className="text-xs text-gray-400 font-mono">
-              {isPaused ? 'PAUSED' : isRecording ? 'RECORDING' : 'STOPPED'}
+              {isConnecting ? 'CONNECTING' : isPaused ? 'PAUSED' : isRecording ? 'RECORDING' : 'STOPPED'}
             </span>
           </div>
           <div className="h-1 bg-[#050508] rounded-full overflow-hidden">
@@ -255,7 +287,8 @@ export default function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) 
 
           <button
             onClick={handlePauseResume}
-            className="w-14 h-14 rounded-full bg-cyan-900/30 border border-cyan-500/50 text-cyan-400 hover:bg-cyan-900/50 transition-all flex items-center justify-center"
+            disabled={isConnecting}
+            className="w-14 h-14 rounded-full bg-cyan-900/30 border border-cyan-500/50 text-cyan-400 hover:bg-cyan-900/50 transition-all flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
             title={isPaused ? 'Resume' : 'Pause'}
           >
             {isPaused ? (
@@ -271,7 +304,7 @@ export default function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) 
 
           <button
             onClick={handleSend}
-            disabled={duration < 1}
+            disabled={isConnecting || duration < 1}
             className="w-12 h-12 rounded-full bg-emerald-900/30 border border-emerald-500/50 text-emerald-400 hover:bg-emerald-900/50 transition-all flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
             title="Send"
           >
@@ -283,7 +316,7 @@ export default function VoiceRecorder({ onSend, onCancel }: VoiceRecorderProps) 
 
         {/* Info */}
         <div className="mt-4 text-center text-xs text-gray-500 font-mono">
-          Max duration: {formatTime(MAX_DURATION)} • {duration < 1 ? 'Record at least 1 second' : 'Ready to send'}
+          Max duration: {formatTime(MAX_DURATION)} • {isConnecting ? 'Connecting...' : duration < 1 ? 'Record at least 1 second' : 'Ready to send'}
         </div>
       </div>
     </div>

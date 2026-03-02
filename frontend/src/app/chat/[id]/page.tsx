@@ -255,6 +255,26 @@ export default function ConversationPage() {
   }
 
   async function handleVoiceSend(audioBlob: Blob, duration: number, waveform: number[]) {
+    // Close modal immediately - don't make user wait for upload
+    setShowVoiceRecorder(false);
+
+    // Optimistic update - show voice message placeholder immediately
+    const tempId = -Date.now();
+    const tempMsg: Message = {
+      id: tempId,
+      conversation_id: convId,
+      sender_id: user!.id,
+      sender: user!,
+      type: 'voice',
+      content: 'Voice message',
+      voice_duration: duration,
+      voice_waveform: waveform,
+      read_by: [user!.id],
+      created_at: new Date().toISOString(),
+    };
+    setMessages(prev => [...prev, tempMsg]);
+    setTimeout(() => scrollToBottom(true), 10);
+
     try {
       const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
@@ -274,19 +294,13 @@ export default function ConversationPage() {
       });
 
       if (!uploadRes.ok) {
-        const errorText = await uploadRes.text();
-        console.error('Upload failed:', uploadRes.status, errorText);
-        alert(`Failed to upload voice message: ${uploadRes.status}`);
-        setShowVoiceRecorder(false);
-        return;
+        throw new Error(`Upload failed: ${uploadRes.status}`);
       }
 
       const uploadData = await uploadRes.json();
 
       if (!uploadData.success) {
-        alert('Failed to upload voice message');
-        setShowVoiceRecorder(false);
-        return;
+        throw new Error('Upload unsuccessful');
       }
 
       // Send message with voice data
@@ -297,15 +311,17 @@ export default function ConversationPage() {
         voice_file_size: uploadData.data.file_size,
       });
 
-      if (res.success) {
-        setShowVoiceRecorder(false);
+      if (res.success && res.data) {
+        // Replace temp message with real one from server
+        setMessages(prev => prev.map(m => m.id === tempId ? res.data! : m));
       } else {
-        alert('Failed to send voice message');
+        throw new Error('Failed to send voice message');
       }
     } catch (error) {
       console.error('Error sending voice message:', error);
+      // Remove optimistic message on failure
+      setMessages(prev => prev.filter(m => m.id !== tempId));
       alert(`Failed to send voice message: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      setShowVoiceRecorder(false);
     }
   }
 
@@ -507,6 +523,25 @@ export default function ConversationPage() {
                               isOwn={isOwn}
                             />
                           </>
+                        ) : msg.type === 'voice' && !msg.voice_file_path ? (
+                          <div className="flex items-center gap-2 p-2 sm:p-3 rounded bg-cyan-950/40 min-w-[200px] sm:min-w-[280px]">
+                            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-cyan-500/30 flex items-center justify-center shrink-0">
+                              <div className="w-4 h-4 border-2 border-cyan-400/30 border-t-cyan-400 rounded-full animate-spin" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="h-8 sm:h-10 flex items-center gap-0.5 px-1">
+                                {(msg.voice_waveform || []).slice(-50).map((amplitude, i) => (
+                                  <div key={i} className="flex-1 bg-cyan-500/30 rounded-full" style={{ height: `${Math.max(10, amplitude * 100)}%` }} />
+                                ))}
+                              </div>
+                              <div className="flex items-center justify-between mt-1 px-1">
+                                <span className="text-[9px] sm:text-[10px] font-mono text-cyan-400/60 animate-pulse">Sending...</span>
+                                <span className="text-[9px] sm:text-[10px] font-mono text-gray-500">
+                                  {Math.floor((msg.voice_duration || 0) / 60)}:{String(Math.floor((msg.voice_duration || 0) % 60)).padStart(2, '0')}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
                         ) : (
                           <p className={`whitespace-pre-wrap leading-relaxed break-words ${isDeleted ? 'italic text-gray-500' : ''}`}>{msg.content}</p>
                         )}
