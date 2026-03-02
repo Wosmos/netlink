@@ -76,18 +76,16 @@ func (s *AuthService) Register(email, password string, name, phone *string) erro
 		return err
 	}
 	_, err = s.userRepo.Create(email, hash, token, name, phone)
-	if err == nil {
-		if emailErr := s.emailService.SendVerificationEmail(email, token); emailErr != nil {
-			log.Printf("Failed to send verification email to %s: %v", email, emailErr)
-			if strings.Contains(emailErr.Error(), "403") || strings.Contains(emailErr.Error(), "422") {
-				log.Printf("Email sending restricted — likely Resend free tier limitation for %s", email)
-			}
-			log.Printf("[FALLBACK] Verify link: /verify?token=%s", token)
-		} else {
-			log.Printf("Verification email sent to %s", email)
-		}
+	if err != nil {
+		return err
 	}
-	return err
+	if emailErr := s.emailService.SendVerificationEmail(email, token); emailErr != nil {
+		log.Printf("Failed to send verification email to %s: %v", email, emailErr)
+		log.Printf("[FALLBACK] Verify link: /verify?token=%s", token)
+		return fmt.Errorf("account created but failed to send verification email: %w", emailErr)
+	}
+	log.Printf("Verification email sent to %s", email)
+	return nil
 }
 
 func (s *AuthService) VerifyEmail(token string) error {
@@ -104,26 +102,23 @@ func (s *AuthService) VerifyEmail(token string) error {
 func (s *AuthService) ForgotPassword(email string) error {
 	user, err := s.userRepo.GetByEmail(email)
 	if err != nil || user == nil {
-		return nil
+		return nil // Don't reveal whether the email exists
 	}
 	token, err := s.GenerateToken()
 	if err != nil {
 		return err
 	}
 	expires := time.Now().Add(1 * time.Hour)
-	err = s.userRepo.SetResetToken(user.ID, &token, &expires)
-	if err == nil {
-		if emailErr := s.emailService.SendPasswordResetEmail(email, token); emailErr != nil {
-			log.Printf("Failed to send password reset email to %s: %v", email, emailErr)
-			if strings.Contains(emailErr.Error(), "403") || strings.Contains(emailErr.Error(), "422") {
-				log.Printf("Email sending restricted — likely Resend free tier limitation for %s", email)
-			}
-			log.Printf("[FALLBACK] Reset link: /reset-password?token=%s", token)
-		} else {
-			log.Printf("Password reset email sent to %s", email)
-		}
+	if err := s.userRepo.SetResetToken(user.ID, &token, &expires); err != nil {
+		return err
 	}
-	return err
+	if emailErr := s.emailService.SendPasswordResetEmail(email, token); emailErr != nil {
+		log.Printf("Failed to send password reset email to %s: %v", email, emailErr)
+		log.Printf("[FALLBACK] Reset link: /reset-password?token=%s", token)
+		return fmt.Errorf("failed to send reset email: %w", emailErr)
+	}
+	log.Printf("Password reset email sent to %s", email)
+	return nil
 }
 
 func (s *AuthService) ResetPassword(token, newPassword string) error {

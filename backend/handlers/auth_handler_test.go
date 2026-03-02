@@ -12,6 +12,14 @@ import (
 	"netlink/models"
 )
 
+// APIResponse is the standard JSON response shape from the API.
+type APIResponse struct {
+	Success bool            `json:"success"`
+	Data    json.RawMessage `json:"data,omitempty"`
+	Error   string          `json:"error,omitempty"`
+	Message string          `json:"message,omitempty"`
+}
+
 // mockAuthService implements AuthServiceInterface for testing
 type mockAuthService struct {
 	loginFn             func(email, password string) (*models.Session, error)
@@ -171,12 +179,15 @@ func TestAPILogin_Success(t *testing.T) {
 		t.Errorf("Expected status 200, got %d", w.Code)
 	}
 
-	resp := decodeResponse(t, w)
-	if !resp.Success {
+	var raw map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("Failed to unmarshal response: %v", err)
+	}
+	if raw["success"] != true {
 		t.Error("Expected success=true")
 	}
-	if resp.Token != "test-session-id" {
-		t.Errorf("Expected token=%q, got %q", "test-session-id", resp.Token)
+	if token, _ := raw["token"].(string); token != "test-session-id" {
+		t.Errorf("Expected token=%q, got %q", "test-session-id", token)
 	}
 }
 

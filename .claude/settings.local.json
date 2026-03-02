@@ -19,7 +19,12 @@
       "Bash(node_modules/.bin/tsc --noEmit --skipLibCheck --module esnext --moduleResolution bundler --jsx react-native --target esnext --strict --baseUrl . --paths '{\"\"@/*\"\":[\"\"./src/*\"\"]}')",
       "Bash(npx next lint)",
       "Bash(bun run tsc --noEmit)",
-      "Bash(go test ./auth/ ./middleware/ ./websocket/ ./models/ -v -count=1)"
+      "Bash(go test ./auth/ ./middleware/ ./websocket/ ./models/ -v -count=1)",
+      "Bash(go test ./handlers/... ./storage/... ./middleware/...)",
+      "Bash(curl -s -X POST \"https://qifhghtyxqjzgohddxrp.supabase.co/storage/v1/object/sign/voice-recordings/voice/1/test\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpZmhnaHR5eHFqemdvaGRkeHJwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjQwMDk0NywiZXhwIjoyMDg3OTc2OTQ3fQ.brCQQE5VecqfZ6NXf4-TlTNsJ57CvmH5pJESepZIZ_g\" -H \"Content-Type: application/json\" -d '{\"\"expiresIn\"\":3600}')",
+      "Bash(curl -s \"https://qifhghtyxqjzgohddxrp.supabase.co/storage/v1/object/list/voice-recordings\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpZmhnaHR5eHFqemdvaGRkeHJwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjQwMDk0NywiZXhwIjoyMDg3OTc2OTQ3fQ.brCQQE5VecqfZ6NXf4-TlTNsJ57CvmH5pJESepZIZ_g\" -H \"Content-Type: application/json\" -d '{\"\"prefix\"\":\"\"voice/\"\",\"\"limit\"\":10}')",
+      "Bash(curl -s \"https://qifhghtyxqjzgohddxrp.supabase.co/storage/v1/object/list/voice-recordings\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpZmhnaHR5eHFqemdvaGRkeHJwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjQwMDk0NywiZXhwIjoyMDg3OTc2OTQ3fQ.brCQQE5VecqfZ6NXf4-TlTNsJ57CvmH5pJESepZIZ_g\" -H \"Content-Type: application/json\" -d '{\"\"prefix\"\":\"\"voice/10/\"\",\"\"limit\"\":5}')",
+      "Bash(curl -s -X POST \"https://qifhghtyxqjzgohddxrp.supabase.co/storage/v1/object/sign/voice-recordings/voice/10/1772420021.webm\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpZmhnaHR5eHFqemdvaGRkeHJwIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MjQwMDk0NywiZXhwIjoyMDg3OTc2OTQ3fQ.brCQQE5VecqfZ6NXf4-TlTNsJ57CvmH5pJESepZIZ_g\" -H \"Content-Type: application/json\" -d '{\"\"expiresIn\"\":3600}')"
     ]
   }
 }
