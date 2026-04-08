@@ -23,7 +23,7 @@ const getDevelopmentIP = () => {
 const DEVELOPMENT_IP = getDevelopmentIP();
 
 // Replace with your Railway deployment URL after deploying backend
-const PRODUCTION_API = "https://your-backend.up.railway.app";
+const PRODUCTION_API = "https://netlink-production.up.railway.app";
 
 export const API_CONFIG = {
   BASE_URL: __DEV__
