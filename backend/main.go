@@ -72,17 +72,17 @@ func main() {
 	if err := sessionRepo.InitSchema(ctx); err != nil {
 		log.Fatal("Failed to init session schema:", err)
 	}
-	if err := taskRepo.InitSchema(ctx); err != nil {
-		log.Fatal("Failed to init task schema:", err)
-	}
-	if err := noteRepo.InitSchema(ctx); err != nil {
-		log.Fatal("Failed to init note schema:", err)
-	}
 	if err := chatRepo.InitSchema(ctx); err != nil {
 		log.Fatal("Failed to init chat schema:", err)
 	}
 	if err := chatRepo.InitReactionsSchema(ctx); err != nil {
 		log.Fatal("Failed to init reactions schema:", err)
+	}
+	if err := taskRepo.InitSchema(ctx); err != nil {
+		log.Fatal("Failed to init task schema:", err)
+	}
+	if err := noteRepo.InitSchema(ctx); err != nil {
+		log.Fatal("Failed to init note schema:", err)
 	}
 	fmt.Println("✅ Database schema initialized")
 
