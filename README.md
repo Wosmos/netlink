@@ -95,9 +95,9 @@ go test ./... -v
 The backend ships as a Docker image (`backend/Dockerfile`) and runs on any
 Docker-capable host (Koyeb, Hugging Face Spaces, Railway, Render, Fly…). It binds
 `$PORT`, exposes `GET /api/health`, and auto-creates its schema on first boot —
-no migration step. See **[DEPLOY.md](DEPLOY.md)** for the required env vars and a
-ready `render.yaml` Blueprint. A `keepalive` GitHub Action pings `/api/health` to
-keep sleep-prone free tiers warm.
+no migration step. See **[DEPLOY.md](DEPLOY.md)** for the required env vars and
+per-host setup (Hugging Face Spaces, Koyeb, Railway…). A `keepalive` GitHub Action
+pings `/api/health` to keep sleep-prone free tiers warm.
 
 ## Known Limitations
 

@@ -27,9 +27,10 @@ No migration step is required — the app creates its tables on startup.
 
 ## Keep-alive (free tiers that sleep)
 `.github/workflows/keepalive.yml` pings `/api/health` every ~12 min. Set the repo
-secret `RENDER_URL` (or edit it) to your deployed base URL. For rock-solid
+secret `KEEPALIVE_URL` (or edit it) to your deployed base URL. For rock-solid
 pinging use cron-job.org against `<base-url>/api/health` instead.
 
-## Render (if you add a card)
-`render.yaml` is a ready Blueprint — Render Dashboard → New → Blueprint → this repo.
-Note: Render now requires a payment card on file even for free instances.
+## Hugging Face Spaces (Docker)
+Add a `README.md` with HF metadata (`sdk: docker`, `app_port: 8080`), push this
+`backend/` tree to the Space repo, and set the env vars above as Space **Secrets**.
+HF builds the Dockerfile and serves it at `https://<user>-<space>.hf.space`.
