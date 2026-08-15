@@ -30,7 +30,8 @@ No migration step is required — the app creates its tables on startup.
 secret `KEEPALIVE_URL` (or edit it) to your deployed base URL. For rock-solid
 pinging use cron-job.org against `<base-url>/api/health` instead.
 
-## Hugging Face Spaces (Docker)
-Add a `README.md` with HF metadata (`sdk: docker`, `app_port: 8080`), push this
-`backend/` tree to the Space repo, and set the env vars above as Space **Secrets**.
-HF builds the Dockerfile and serves it at `https://<user>-<space>.hf.space`.
+## Render (free web service)
+`render.yaml` is a ready Blueprint — Dashboard → New → Blueprint → this repo.
+Render's free tier is $0 but requires a card on file (verification, not charged).
+Use **Neon** for `DATABASE_URL` (Render's free Postgres expires after 30 days).
+Free instances sleep after ~15 min idle; the keep-alive workflow mitigates that.
