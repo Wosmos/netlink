@@ -1,0 +1,22 @@
+name: Keep Render awake
+# Render free instances spin down after ~15 min idle and cold-start on the next
+# request. Pinging /api/health every ~12 min keeps it warm during the day.
+# Set repo secret RENDER_URL to the deployed base URL (e.g. https://netlink-backend.onrender.com).
+# NOTE: GitHub disables scheduled workflows on repos with no activity for 60 days,
+# and cron timing drifts by several minutes. For rock-solid pinging, use
+# cron-job.org against <RENDER_URL>/api/health instead.
+on:
+  schedule:
+    - cron: "*/12 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health endpoint
+        run: |
+          if [ -z "${{ secrets.RENDER_URL }}" ]; then
+            echo "RENDER_URL secret not set — skipping."; exit 0
+          fi
+          curl -fsS --max-time 30 "${{ secrets.RENDER_URL }}/api/health" && echo " — pinged OK"
